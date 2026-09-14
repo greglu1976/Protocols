@@ -1,5 +1,5 @@
 # --- Переменные ---
-CABINET = 440.01-0 # Папка для шкафа 
+CABINET = 440.01-0
 
 FINAL_TARGET = final_protocol.docx
 TITLE_PAGE = templates/title_page.docx
