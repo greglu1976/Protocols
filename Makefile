@@ -1,11 +1,13 @@
 # --- Переменные ---
+CABINET = 440.01-0 # Папка для шкафа 
+
 FINAL_TARGET = final_protocol.docx
-TITLE_PAGE = title_page.docx
+TITLE_PAGE = templates/title_page.docx
 MAIN_CONTENT = main_content.docx
 
-SOURCE = section1.md section2.md
-REFERENCE = reference.docx
-FILTERS = --lua-filter=pagebreak.lua --filter pandoc-crossref
+SOURCE = $(CABINET)/section1.md $(CABINET)/section2.md
+REFERENCE = templates/reference.docx
+FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 
 PANDOC ?= pandoc
 PYTHON ?= python
@@ -16,13 +18,13 @@ PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERE
 # --- Цели (Targets) ---
 all: $(FINAL_TARGET)
 
-# 1. Основное правило: собираем финальный файл из титульника и сгенерированного контента
-$(FINAL_TARGET): $(MAIN_CONTENT) $(TITLE_PAGE) docx_merger.py
-	@echo "Объединяю титульный лист и основную часть с помощью Python..."
-	$(PYTHON) docx_merger.py
+# 1. Основное правило: собираем финальный файл
+$(FINAL_TARGET): $(MAIN_CONTENT) $(TITLE_PAGE) python/docx_merger.py
+	@echo "Merging documents..."
+	$(PYTHON) python/docx_merger.py $(TITLE_PAGE) $(MAIN_CONTENT) $(FINAL_TARGET)
 
 # 2. Правило для сборки основной части через Pandoc (зависит от md-файлов)
-$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) pagebreak.lua
+$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua
 	@echo "Генерирую основную часть из Markdown через Pandoc..."
 	$(PANDOC) $(SOURCE) -o $(MAIN_CONTENT) $(PANDOC_OPTS)
 
