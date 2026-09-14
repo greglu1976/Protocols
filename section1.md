@@ -1,7 +1,4 @@
 ---
-title: "Шкаф ШЭТ 440.02-0-ЮИРЗ"
-subtitle: "Типовой протокол наладки"
-author: ""
 chapters: true
 numberSections: false
 linkReferences: true

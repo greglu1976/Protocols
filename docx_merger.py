@@ -11,7 +11,7 @@ def merge_docx_files(title_path, main_path, output_path):
     sub_doc = Document(main_path)
     
     # 3. Добавляем разрыв страницы, чтобы содержание началось со 2-й страницы
-    master.add_page_break()
+    #master.add_page_break()
     
     # 4. Склеиваем документы с сохранением всех стилей и таблиц МЭК 61850
     composer.append(sub_doc)
