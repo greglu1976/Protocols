@@ -7,7 +7,7 @@ TITLE_PAGE = templates/title_page.docx
 MAIN_CONTENT = main_content.docx
 
 # Кавычки не нужны, так как пробелов нет
-SOURCE = $(CABINET)/section1.md $(CABINET)/section2.md
+SOURCE = $(CABINET)/section1.md $(CABINET)/section2.md $(CABINET)/section3.md $(CABINET)/section4.md $(CABINET)/section5.md $(CABINET)/section6.md $(CABINET)/section7.md
 REFERENCE = templates/reference.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 
