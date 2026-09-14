@@ -23,6 +23,8 @@ all: $(FINAL_TARGET)
  $(FINAL_TARGET): $(MAIN_CONTENT) $(TITLE_PAGE) python/docx_merger.py
 	@echo "Merging documents..."
 	$(PYTHON) python/docx_merger.py $(TITLE_PAGE) $(MAIN_CONTENT) $(FINAL_TARGET)
+	@echo "Cleaning up intermediate file..."
+	-del /Q $(MAIN_CONTENT)
 
 # 2. Правило для сборки основной части (Pandoc)
  $(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua
