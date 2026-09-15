@@ -22,6 +22,7 @@ PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERE
 
 # Динамическая генерация SOURCE из sections.json
 # Поддерживает относительные пути (добавляет CABINET/) и абсолютные пути
+# SOURCE = $(shell python -c "import json, os; files=json.load(open('$(SECTIONS_JSON)')); print(' '.join([os.path.join('$(CABINET)', f) if not os.path.isabs(f) else f for f in files]))")
 SOURCE = $(shell python -c "import json, os; files=json.load(open('$(SECTIONS_JSON)')); print(' '.join([os.path.join('$(CABINET)', f) if not os.path.isabs(f) else f for f in files]))")
 
 # --- Цели (Targets) ---
