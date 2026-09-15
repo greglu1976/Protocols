@@ -2,10 +2,10 @@ import os
 import subprocess
 
 # Ищем все папки, которые начинаются на "ШЭТ"
-cabinets = [d for d in os.listdir('.') if os.path.isdir(d) and d.startswith("ШЭТ")]
+cabinets = [d for d in os.listdir('.') if os.path.isdir(d) and d.startswith("SET")]
 
 if not cabinets:
-    print("Не найдено папок, начинающихся на 'ШЭТ'!")
+    print("Не найдено папок, начинающихся на 'SET'!")
     exit()
 
 print(f"Найдены шкафы для сборки: {', '.join(cabinets)}")

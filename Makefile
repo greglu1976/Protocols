@@ -1,10 +1,8 @@
 # --- Переменные ---
-CABINET ?= ШЭТ_440.01-0
+CABINET ?= SET_440.01-0
 
-# Папка для временных файлов
 TEMP_DIR = TEMP
 
-# Имя готового файла в папке кабинета
 FINAL_TARGET = $(CABINET)/protocol_$(CABINET).docx
 
 TITLE_TEMPLATE = templates/title_page.docx
@@ -30,34 +28,26 @@ PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERE
 
 all: $(FINAL_TARGET)
 
-# Создаём папку TEMP если её нет
 $(TEMP_DIR):
-	@if not exist "$(TEMP_DIR)" mkdir "$(TEMP_DIR)"
+	-@if not exist "$(TEMP_DIR)" mkdir "$(TEMP_DIR)" 2>nul
 
-# 1. Заполнение титульного листа (docxtpl)
 $(TITLE_FILLED): $(TITLE_TEMPLATE) $(PARAMS_JSON) python/placeholder_filler.py | $(TEMP_DIR)
 	@echo "Rendering title page..."
-	@chcp 65001 >nul 2>&1 || true
 	$(PYTHON) python/placeholder_filler.py "$(TITLE_TEMPLATE)" "$(CABINET)" "$(TITLE_FILLED)"
 
-# 2. Основная часть через Pandoc
 $(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua | $(TEMP_DIR)
 	@echo "Generating main content via Pandoc..."
-	@chcp 65001 >nul 2>&1 || true
-	$(PANDOC) $(SOURCE) -o $(MAIN_CONTENT) $(PANDOC_OPTS)
+	$(PANDOC) $(SOURCE) -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
-# 3. Слияние титульника и основной части
 $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
 	@echo "Merging documents..."
-	@chcp 65001 >nul 2>&1 || true
 	$(PYTHON) python/docx_merger.py "$(TITLE_FILLED)" "$(MAIN_CONTENT)" "$(FINAL_TARGET)"
 	@echo "Cleaning up intermediate files..."
-	@if exist "$(MAIN_CONTENT)" del /Q "$(MAIN_CONTENT)"
-	@if exist "$(TITLE_FILLED)" del /Q "$(TITLE_FILLED)"
+	-@if exist "$(subst /,\,$(MAIN_CONTENT))" del /Q "$(subst /,\,$(MAIN_CONTENT))"
+	-@if exist "$(subst /,\,$(TITLE_FILLED))" del /Q "$(subst /,\,$(TITLE_FILLED))"
 
-# Очистка
 clean:
-	@chcp 65001 >nul 2>&1 || true
-	@if exist "$(TEMP_DIR)\$(notdir $(MAIN_CONTENT))" del /Q "$(TEMP_DIR)\$(notdir $(MAIN_CONTENT))"
-	@if exist "$(TEMP_DIR)\$(notdir $(TITLE_FILLED))" del /Q "$(TEMP_DIR)\$(notdir $(TITLE_FILLED))"
-	@for %%f in ($(CABINET)\protocol_*.docx) do @if exist "%%f" del /Q "%%f"
+	-@if exist "$(subst /,\,$(MAIN_CONTENT))" del /Q "$(subst /,\,$(MAIN_CONTENT))"
+	-@if exist "$(subst /,\,$(TITLE_FILLED))" del /Q "$(subst /,\,$(TITLE_FILLED))"
+	-@if exist "$(subst /,\,$(FINAL_TARGET))" del /Q "$(subst /,\,$(FINAL_TARGET))"
+	-@if exist "$(subst /,\,$(TEMP_DIR))" rmdir /Q "$(subst /,\,$(TEMP_DIR))" 2>nul
