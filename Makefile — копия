@@ -8,9 +8,12 @@ FINAL_TARGET = $(CABINET)/protocol_$(CABINET).docx
 TITLE_TEMPLATE = templates/title_page.docx
 TITLE_FILLED   = $(TEMP_DIR)/title_page_filled.docx
 PARAMS_JSON    = $(CABINET)/params.json
-SECTIONS_JSON  = $(CABINET)/sections.json
 
 MAIN_CONTENT = $(TEMP_DIR)/main_content.docx
+
+SOURCE = $(CABINET)/section1.md $(CABINET)/section2.md $(CABINET)/section3.md \
+         $(CABINET)/section4.md $(CABINET)/section5.md $(CABINET)/section6.md \
+         $(CABINET)/section7.md
 
 REFERENCE = templates/title_page.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
@@ -19,10 +22,6 @@ PANDOC ?= pandoc
 PYTHON ?= python
 
 PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE)
-
-# Динамическая генерация SOURCE из sections.json
-# Поддерживает относительные пути (добавляет CABINET/) и абсолютные пути
-SOURCE = $(shell python -c "import json, os; files=json.load(open('$(SECTIONS_JSON)')); print(' '.join([os.path.join('$(CABINET)', f) if not os.path.isabs(f) else f for f in files]))")
 
 # --- Цели (Targets) ---
 .PHONY: all clean
@@ -36,9 +35,8 @@ $(TITLE_FILLED): $(TITLE_TEMPLATE) $(PARAMS_JSON) python/placeholder_filler.py |
 	@echo "Rendering title page..."
 	$(PYTHON) python/placeholder_filler.py "$(TITLE_TEMPLATE)" "$(CABINET)" "$(TITLE_FILLED)"
 
-$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua $(SECTIONS_JSON) | $(TEMP_DIR)
+$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua | $(TEMP_DIR)
 	@echo "Generating main content via Pandoc..."
-	@echo "Using sections: $(SOURCE)"
 	$(PANDOC) $(SOURCE) -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
 $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
