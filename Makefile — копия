@@ -35,8 +35,6 @@ PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERE
 CABINET_VARS = $(TEMP_DIR)/cabinet_vars.mk
 CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
 
-POSTPROCESS = python/postprocess.py
-
 # --- Переменные кабинета грузятся только в подмейке ---
 ifeq ($(ONE),1)
 $(shell if not exist "$(subst /,\,$(TEMP_DIR))" mkdir "$(subst /,\,$(TEMP_DIR))")
@@ -67,10 +65,7 @@ one:
 	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) _one && \
 		$(MAKE) --no-print-directory clean-temp
 
-# Сборка одного кабинета + постобработка
 _one: $(FINAL_TARGET)
-	@echo "Post-processing $(FINAL_TARGET) for $(CABINET)..."
-	$(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
 
 list:
 	@echo "CABINETS = [$(CABINETS)]"
