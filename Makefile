@@ -70,7 +70,7 @@ one:
 # Сборка одного кабинета + постобработка
 _one: $(FINAL_TARGET)
 	@echo "Post-processing $(FINAL_TARGET) for $(CABINET)..."
-	$(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
+	set TEST=$(TEST)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
 
 list:
 	@echo "CABINETS = [$(CABINETS)]"

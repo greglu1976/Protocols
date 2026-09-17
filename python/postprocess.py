@@ -45,6 +45,11 @@ def main():
         print(f"File not found: {docx_path}", file=sys.stderr)
         sys.exit(1)
 
+    # Пропускаем постобработку в тестовом режиме
+    if os.environ.get("TEST") == "1":
+        print(f"[TEST MODE] Skipping post-processing for {docx_path}")
+        return
+
     print(f"Post-processing: {docx_path}")
     doc = Document(docx_path)
 
