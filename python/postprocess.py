@@ -29,7 +29,7 @@ def replace_style(paragraph, target_style):
     if paragraph.style is None:
         return False
     
-    if paragraph.style.name in ("Обычный", "Normal"):
+    if paragraph.style.name in ("Обычный", "Normal", "Основной текст", "Body Text"):
         paragraph.style = target_style
         return True
     return False
