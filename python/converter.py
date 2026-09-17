@@ -145,7 +145,24 @@ def excel_to_perfect_grid(file_path, sheet_name=0):
             if canvas[header_y][x] == '-':
                 canvas[header_y][x] = '='
 
-    return '\n'.join(''.join(row).rstrip() for row in canvas)
+    # 7. Парсинг имени листа и формирование подписи
+    import re
+    
+    sheet_title = ws.title
+    # Ищем текст ДО скобок и текст ВНУТРИ скобок
+    match = re.match(r'^(.*?)\(([^)]+)\)\s*$', sheet_title)
+    
+    if match:
+        visible_name = match.group(1).strip()
+        table_id = match.group(2).strip()
+        caption_line = f": {visible_name} {{#tbl:{table_id}}}"
+    else:
+        # Если формат не совпадает, используем всё имя как есть (без пробелов в ID)
+        safe_id = sheet_title.replace(' ', '_')
+        caption_line = f": {sheet_title} {{#tbl:{safe_id}}}"
+
+    grid_output = '\n'.join(''.join(row).rstrip() for row in canvas)
+    return f"{grid_output}\n\n{caption_line}"
 
 # --- Запуск ---
 print(excel_to_perfect_grid('table.xlsx'))
