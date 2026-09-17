@@ -21,7 +21,7 @@ from docx import Document
 TARGET_STYLE_NAME = "Основной текст с отступом 31"
 CAPTION_STYLE_NAME = "ДОК Таблица Текст Без Нумерации"  # <-- Стиль для подписей типа "Таблица 1 - ..."
 HEADER_STYLE_NAME = "ДОК Таблица Текст Центр"       
-FIRST_COL_STYLE_NAME = "ДОК Таблица Текст Нумерованный"        
+FIRST_COL_STYLE_NAME = "ДОК Таблица Текст Центр"        
 OTHER_CELLS_STYLE_NAME = "ДОК Таблица Текст"  
 
 def replace_style(paragraph, target_style):
