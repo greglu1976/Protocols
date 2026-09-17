@@ -36,6 +36,7 @@ CABINET_VARS = $(TEMP_DIR)/cabinet_vars.mk
 CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
 
 POSTPROCESS = python/postprocess.py
+TABLE_PREPROCESSOR = python/table_preprocessor.py
 
 # --- Переменные кабинета грузятся только в подмейке ---
 ifeq ($(ONE),1)
@@ -58,19 +59,23 @@ endif
 
 # make all — собрать каждый найденный кабинет последовательным вызовом подмейки
 all:
-	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) _one && ) \
+	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) _one && ) \
 		$(MAKE) --no-print-directory clean-temp && \
 		echo All done.
 
 # make — собрать один CABINET и подчистить TEMP
 one:
-	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) _one && \
+	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) _one && \
 		$(MAKE) --no-print-directory clean-temp
 
 # Сборка одного кабинета + постобработка
 _one: $(FINAL_TARGET)
+ifeq ($(TEST),1)
+	@echo "[TEST MODE] Skipping post-processing for $(CABINET)..."
+else
 	@echo "Post-processing $(FINAL_TARGET) for $(CABINET)..."
 	set TEST=$(TEST)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
+endif
 
 list:
 	@echo "CABINETS = [$(CABINETS)]"
@@ -105,7 +110,9 @@ $(TITLE_FILLED): $(TITLE_TEMPLATE) $(EXCEL) python/export_vars.py python/placeho
 		--params   "$(CABINET_JSON)" \
 		--out      "$(TITLE_FILLED)"
 
-$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua $(SECTIONS_JSON) | $(TEMP_DIR)
+$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) | $(TEMP_DIR)
+	@echo "Preprocessing tables in source files..."
+	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Generating main content via Pandoc..."
 	@echo "Using sections: $(SOURCE)"
 	$(PANDOC) $(SOURCE) -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
