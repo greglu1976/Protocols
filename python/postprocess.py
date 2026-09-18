@@ -13,6 +13,9 @@
     python postprocess.py путь/к/protocol_XXX.docx
 """
 
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+
 import sys
 import os
 from docx import Document
@@ -23,6 +26,22 @@ CAPTION_STYLE_NAME = "ДОК Таблица Текст Без Нумерации
 HEADER_STYLE_NAME = "ДОК Таблица Текст Центр"       
 FIRST_COL_STYLE_NAME = "ДОК Таблица Текст Центр"        
 OTHER_CELLS_STYLE_NAME = "ДОК Таблица Текст Центр"  
+
+def set_table_width_percent(table, percent=100):
+    """Устанавливает ширину таблицы в процентах от доступной ширины."""
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    
+    # Находим или создаём элемент w:tblW
+    tblW = tblPr.find(qn('w:tblW'))
+    if tblW is None:
+        tblW = OxmlElement('w:tblW')
+        tblPr.append(tblW)
+    
+    # Устанавливаем ширину в 100% (значение в пятидесятых долях процента, 5000 = 100%)
+    tblW.set(qn('w:w'), str(percent * 50))
+    tblW.set(qn('w:type'), 'pct')
+
 
 def replace_style(paragraph, target_style):
     """Меняет стиль, если текущий - 'Обычный'/'Normal'."""
@@ -91,6 +110,7 @@ def main():
 
     # 2. Таблицы
     for table in doc.tables:
+        set_table_width_percent(table, 100)  # Растянуть на 100% ширины
         for row_idx, row in enumerate(table.rows):
             for cell_idx, cell in enumerate(row.cells):
                 current_target_style = style_other_cells 

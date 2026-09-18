@@ -36,6 +36,7 @@ CABINET_VARS = $(TEMP_DIR)/cabinet_vars.mk
 CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
 
 POSTPROCESS = python/postprocess.py
+TABLE_PREPROCESSOR = python/preprocess.py
 
 # --- Переменные кабинета грузятся только в подмейке ---
 ifeq ($(ONE),1)
@@ -58,19 +59,23 @@ endif
 
 # make all — собрать каждый найденный кабинет последовательным вызовом подмейки
 all:
-	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) _one && ) \
+	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) _one && ) \
 		$(MAKE) --no-print-directory clean-temp && \
 		echo All done.
 
 # make — собрать один CABINET и подчистить TEMP
 one:
-	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) _one && \
+	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) _one && \
 		$(MAKE) --no-print-directory clean-temp
 
 # Сборка одного кабинета + постобработка
 _one: $(FINAL_TARGET)
+ifeq ($(TEST),1)
+	@echo "[TEST MODE] Skipping post-processing for $(CABINET)..."
+else
 	@echo "Post-processing $(FINAL_TARGET) for $(CABINET)..."
 	set TEST=$(TEST)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
+endif
 
 list:
 	@echo "CABINETS = [$(CABINETS)]"
@@ -107,12 +112,17 @@ $(TITLE_FILLED): $(TITLE_TEMPLATE) $(EXCEL) python/export_vars.py python/placeho
 
 COMBINED_MD = $(TEMP_DIR)/combined.md
 
-$(COMBINED_MD): $(SOURCE) $(CABINET_JSON) python/md_subst.py | $(TEMP_DIR)
+# 1) Шаблон → combined.md: сначала препроцессор таблиц, потом подстановка {{ vars }}
+$(COMBINED_MD): $(SOURCE) $(CABINET_JSON) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) python/md_subst.py | $(TEMP_DIR)
+	@echo "Preprocessing tables in source files..."
+	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Substituting {{ vars }} in markdown..."
 	$(PYTHON) python/md_subst.py "$(CABINET_JSON)" "$(COMBINED_MD)" $(SOURCE)
 
+# 2) combined.md → main_content.docx
 $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
 	@echo "Generating main content via Pandoc..."
+	@echo "Using sections: $(SOURCE)"
 	$(PANDOC) "$(COMBINED_MD)" -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
 $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
