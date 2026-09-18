@@ -110,12 +110,20 @@ $(TITLE_FILLED): $(TITLE_TEMPLATE) $(EXCEL) python/export_vars.py python/placeho
 		--params   "$(CABINET_JSON)" \
 		--out      "$(TITLE_FILLED)"
 
-$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) | $(TEMP_DIR)
+COMBINED_MD = $(TEMP_DIR)/combined.md
+
+# 1) Шаблон → combined.md: сначала препроцессор таблиц, потом подстановка {{ vars }}
+$(COMBINED_MD): $(SOURCE) $(CABINET_JSON) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) python/md_subst.py | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
 	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
+	@echo "Substituting {{ vars }} in markdown..."
+	$(PYTHON) python/md_subst.py "$(CABINET_JSON)" "$(COMBINED_MD)" $(SOURCE)
+
+# 2) combined.md → main_content.docx
+$(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
 	@echo "Generating main content via Pandoc..."
 	@echo "Using sections: $(SOURCE)"
-	$(PANDOC) $(SOURCE) -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
+	$(PANDOC) "$(COMBINED_MD)" -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
 $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
 	@echo "Merging documents..."
