@@ -105,10 +105,15 @@ $(TITLE_FILLED): $(TITLE_TEMPLATE) $(EXCEL) python/export_vars.py python/placeho
 		--params   "$(CABINET_JSON)" \
 		--out      "$(TITLE_FILLED)"
 
-$(MAIN_CONTENT): $(SOURCE) $(REFERENCE) lua/pagebreak.lua $(SECTIONS_JSON) | $(TEMP_DIR)
+COMBINED_MD = $(TEMP_DIR)/combined.md
+
+$(COMBINED_MD): $(SOURCE) $(CABINET_JSON) python/md_subst.py | $(TEMP_DIR)
+	@echo "Substituting {{ vars }} in markdown..."
+	$(PYTHON) python/md_subst.py "$(CABINET_JSON)" "$(COMBINED_MD)" $(SOURCE)
+
+$(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
 	@echo "Generating main content via Pandoc..."
-	@echo "Using sections: $(SOURCE)"
-	$(PANDOC) $(SOURCE) -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
+	$(PANDOC) "$(COMBINED_MD)" -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
 $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
 	@echo "Merging documents..."
