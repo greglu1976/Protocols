@@ -36,7 +36,7 @@ CABINET_VARS = $(TEMP_DIR)/cabinet_vars.mk
 CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
 
 POSTPROCESS = python/postprocess.py
-TABLE_PREPROCESSOR = python/table_preprocessor.py
+TABLE_PREPROCESSOR = python/preprocess.py
 
 # --- Переменные кабинета грузятся только в подмейке ---
 ifeq ($(ONE),1)
