@@ -80,7 +80,12 @@ def generate_table_ascii(file_abs, sheet_name='Лист1'):
             is_master, min_r, min_c, max_r, max_c = get_merged_info(r, c)
             val = ""
             if is_master:
-                val = str(ws.cell(row=r, column=c).value or '').replace('\n', ' ').strip()
+                #val = str(ws.cell(row=r, column=c).value or '').replace('\n', ' ').strip()
+                cell_value = ws.cell(row=r, column=c).value
+                if cell_value is None:
+                    val = ""
+                else:
+                    val = str(cell_value).replace('\n', ' ').strip()
 
             raw_data[(r, c)] = {
                 'val': val, 'is_master': is_master,
