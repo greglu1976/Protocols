@@ -42,6 +42,7 @@ OTHER_CELLS_STYLE_NAME = "ДОК Таблица Текст Центр"
 TABLE_TYPE_KEYWORDS = {
     "ток":    "AnalogueTable",
     "сигнал": "DiscreteTable",
+    "входное воздействие": "NewTable",
 }
 
 
@@ -57,7 +58,8 @@ TABLE_WIDTHS_PCT = {
     ("DiscreteTable", 3):  [60, 20, 20],
     ("DiscreteTable", 5):  [50, 20, 10, 10, 10],
     ("DiscreteTable", 6):  [50, 18, 8, 8, 8, 8],
-    #("DiscreteTable", 10): [8, 8, 8, 8, 8, 8, 8, 8, 8, 28],
+    ("NewTable", 8):  [18, 14, 18, 14, 6, 6, 12, 12],
+    ("NewTable", 11):  [15, 12, 15, 11, 8, 6, 6, 6, 7, 7, 7],
 }
 
 
