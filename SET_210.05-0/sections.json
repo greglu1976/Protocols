@@ -10,6 +10,9 @@
     "section9.md",
     "../SHET/sec_test_rza.md",
     "../SHET/dzt.md",
-    "../SHET/gzsign.md",
-    "../SHET/gzotkl.md"                                    
+    "../SHET/GZ001/gzsign.md",
+    "../SHET/GZ001/gzotkl.md",
+    "../SHET/ZP001/zpvn.md",
+    "../SHET/ZP001/zpoo.md",
+    "../SHET/ZP001/zpnn.md"                                           
 ]
