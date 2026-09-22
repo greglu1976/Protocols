@@ -12,8 +12,13 @@
     "../SHET/dzt.md",
     "../SHET/GZ001/gzsign.md",
     "../SHET/GZ001/gzotkl.md",
+    "../SHET/GZRPN001/gzrpn.md",
+    "../SHET/GZLRT001/gzlrt.md",        
     "../SHET/ZP001/zpvn.md",
     "../SHET/ZP001/zpoo.md",
     "../SHET/ZP001/zpnn.md",
-    "../SHET/ZPO001/zpo.md"                                               
+    "../SHET/ZPO001/zpo.md",
+    "../SHET/TKZDZ001/tkzdz.md",
+    "../SHET/RTPO001/rtpo.md",
+    "../SHET/RTRPN001/rtrpn.md"                                                           
 ]
