@@ -1,11 +1,24 @@
 # -*- coding: utf-8 -*-
+"""Читает строку из Excel по id и выгружает переменные кабинета.
+
+Пишет два файла:
+  <out.mk>    — NAME := … , CODE := … и т.д. для -include в Makefile;
+  <out.json>  — те же значения + производные переменные для md_subst/inject.
+
+Использование:
+    python export_vars.py <id> <excel> <out.mk>
+"""
 import json
 import sys
 from datetime import datetime
+
 import openpyxl
 
 
+# ─── Утилиты для значений ─────────────────────────────────────────────────────
+
 def fmt_date(value):
+    """datetime или 'YYYY-MM-DD…' → 'DD.MM.YYYY'. Остальное — как есть."""
     if isinstance(value, datetime):
         return value.strftime("%d.%m.%Y")
     s = str(value).strip()
@@ -16,7 +29,7 @@ def fmt_date(value):
 
 
 def normalize_description(text):
-    """Литерал \n (обратный слэш + n) превращаем в настоящий перевод строки."""
+    """Литерал \\n (обратный слэш + n) превращаем в настоящий перевод строки."""
     s = str(text)
     s = s.replace("\\n", "\n")
     s = s.replace("\r\n", "\n")
@@ -26,73 +39,78 @@ def normalize_description(text):
 
 
 def make_escape(s):
+    """Экранирование для .mk-значения."""
     return s.replace("\\", "\\\\").replace("$", "$$").replace("#", "\\#")
 
 
-def _two_codes(params, key1, key2):
-    """Возвращает (code1, code2) — обе строки, strip'нутые, '' если пусто."""
-    return (
-        (params.get(key1) or "").strip(),
-        (params.get(key2) or "").strip(),
-    )
+def _to_mk_value(value):
+    """Схлопывает все переводы/табы в пробелы — .mk-значение однострочное."""
+    return (value
+            .replace("\r\n", " ").replace("\r", " ")
+            .replace("\n", " ").replace("\t", " "))
 
 
-def _build_code_order_block(code1, code2, single_label):
-    """
-    Собирает блок «коды заказа» для markdown.
-    single_label — что написать, если код только один
-    (например: "Код заказа устройства" / "Код заказа ИЧМ").
-    """
-    if code1 and code2:
-        return (
-            "Коды заказа устройств:\n\n"
-            f"{code1};\n\n"
-            f"{code2}."
-        )
-    if code1:
-        return f"{single_label}: {code1}"
-    return ""
+# ─── Слоты кодов ──────────────────────────────────────────────────────────────
 
+def _slots(params, base):
+    """[base, base2, base3] со strip'нутыми значениями."""
+    return [
+        (params.get(base)       or "").strip(),
+        (params.get(base + "2") or "").strip(),
+        (params.get(base + "3") or "").strip(),
+    ]
+
+
+def _warn_slots(base, slots):
+    """Предупреждает о дырках и совпадающих кодах в слотах."""
+    filled = [i for i, v in enumerate(slots) if v]
+    if not filled:
+        return
+
+    lo, hi = min(filled), max(filled)
+    for i in range(lo, hi + 1):
+        if not slots[i]:
+            print(f"[export_vars] warning: {base}{i+1} заполнен, "
+                  f"но {base}{i} пуст", file=sys.stderr)
+
+    seen = {}
+    for i, v in enumerate(slots):
+        if not v:
+            continue
+        if v in seen:
+            print(f"[export_vars] warning: {base}{i+1} совпадает с "
+                  f"{base}{seen[v]+1}", file=sys.stderr)
+        else:
+            seen[v] = i
+
+
+def check_slots(params):
+    """Диагностика по обоим наборам слотов."""
+    _warn_slots("code_order", _slots(params, "code_order"))
+    _warn_slots("code_hmi",   _slots(params, "code_hmi"))
+
+
+# ─── Производные «плоские» переменные (обратная совместимость) ────────────────
 
 def build_code_order_line(params):
-    """Блок кодов заказа для ЮНИТ (code_order / code_order2)."""
-    c1, c2 = _two_codes(params, "code_order", "code_order2")
-    return _build_code_order_block(c1, c2, "Код заказа устройства")
+    """Все коды ЮНИТ, по одному на строке. Порядок: 3 → 2 → 1."""
+    vals = [v for v in reversed(_slots(params, "code_order")) if v]
+    return "\n".join(vals)
 
 
 def build_code_order_hmi_line(params):
-    """Блок кодов заказа для ИЧМ (code_hmi / code_hmi2)."""
-    c1, c2 = _two_codes(params, "code_hmi", "code_hmi2")
-    return _build_code_order_block(c1, c2, "Код заказа ИЧМ")
-
-
-# ── Строки таблиц устройств ──
-
-# ЮНИТ — 7 колонок: SN | Изготовитель | Год | Uпит | I1 | I2 | I3
-_ROW_UNIT = "|                 | ООО Юнител Инжиниринг |             | =/~220  |             |             |             |"
-
-# ИЧМ — 4 колонки: SN | Изготовитель | Год | Uпит
-_ROW_HMI = "|                 | ООО Юнител Инжиниринг |             | =/~220  |"
-
-
-def build_device_row2(params):
-    """Вторая строка таблицы ЮНИТ. Только если заданы оба кода ЮНИТ."""
-    c1, c2 = _two_codes(params, "code_order", "code_order2")
-    return _ROW_UNIT if (c1 and c2) else ""
-
-
-def build_device_row_hmi2(params):
-    """Вторая строка таблицы ИЧМ. Только если заданы оба кода ИЧМ."""
-    c1, c2 = _two_codes(params, "code_hmi", "code_hmi2")
-    return _ROW_HMI if (c1 and c2) else ""
+    """Все коды ИЧМ, по одному на строке. Порядок: 3 → 2 → 1."""
+    vals = [v for v in reversed(_slots(params, "code_hmi")) if v]
+    return "\n".join(vals)
 
 
 def add_derived(params, mk_lines, key, value):
     """Кладёт производную переменную и в params (JSON), и в mk_lines (.mk)."""
     params[key] = value
-    mk_value = value.replace("\n", " ")
-    mk_lines.append(f"{key.upper()} := {make_escape(mk_value)}")
+    mk_lines.append(f"{key.upper()} := {make_escape(_to_mk_value(value))}")
 
+
+# ─── main ─────────────────────────────────────────────────────────────────────
 
 def main():
     if len(sys.argv) != 4:
@@ -103,8 +121,12 @@ def main():
     out_json = out_mk.replace(".mk", ".json")
 
     wb = openpyxl.load_workbook(excel_path, data_only=True)
-    ws = wb.active
+    ws = wb.worksheets[0]
     headers = [c.value for c in ws[1]]
+
+    if any(h is None for h in headers):
+        print("[export_vars] warning: пустые ячейки в заголовках",
+              file=sys.stderr)
 
     for row in ws.iter_rows(min_row=2, values_only=True):
         rec = dict(zip(headers, row))
@@ -117,7 +139,7 @@ def main():
         for key, value in rec.items():
             if key is None:
                 continue
-            name = str(key).strip().lower()
+            name = str(key).strip().replace("\xa0", "").lower()
 
             if value is None:
                 value = ""
@@ -129,20 +151,21 @@ def main():
             value = str(value)
             params[name] = value
 
-            mk_value = value.replace("\n", " ")
-            mk_lines.append(f"{name.upper()} := {make_escape(mk_value)}")
+            mk_lines.append(
+                f"{name.upper()} := {make_escape(_to_mk_value(value))}"
+            )
 
-        # ── Производные переменные: ЮНИТ ──
+        # ── Производные «плоские» переменные ──
+        # Оставлены на случай, если markdown-разделы ещё используют
+        # {{ code_order_unit }} / {{ code_order_hmi }}.
+        # Если нигде не нужны — можно удалить эти 4 строки.
         add_derived(params, mk_lines, "code_order_unit",
                     build_code_order_line(params))
-        add_derived(params, mk_lines, "device_row2",
-                    build_device_row2(params))
-
-        # ── Производные переменные: ИЧМ ──
         add_derived(params, mk_lines, "code_order_hmi",
                     build_code_order_hmi_line(params))
-        add_derived(params, mk_lines, "device_row_hmi2",
-                    build_device_row_hmi2(params))
+
+        # ── Диагностика заполнения слотов ──
+        check_slots(params)
 
         with open(out_mk, "w", encoding="utf-8") as f:
             f.write("\n".join(mk_lines) + "\n")
@@ -152,9 +175,7 @@ def main():
 
         return
 
-    open(out_mk, "w", encoding="utf-8").close()
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump({}, f)
+    # ID не найден: файлы НЕ перезаписываем, чтобы не терять предыдущий результат
     print(f"ID '{target_id}' not found in {excel_path}", file=sys.stderr)
     sys.exit(1)
 

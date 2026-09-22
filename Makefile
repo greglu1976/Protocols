@@ -26,6 +26,7 @@ TITLE_FILLED   = $(TEMP_DIR)/title_page_filled.docx
 SECTIONS_JSON  = $(CABINET)/sections.json
 
 MAIN_CONTENT = $(TEMP_DIR)/main_content.docx
+COMBINED_MD  = $(TEMP_DIR)/combined.md
 
 REFERENCE = templates/title_page.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
@@ -35,11 +36,25 @@ PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERE
 CABINET_VARS = $(TEMP_DIR)/cabinet_vars.mk
 CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
 
-POSTPROCESS = python/postprocess.py
+POSTPROCESS        = python/postprocess.py
 TABLE_PREPROCESSOR = python/preprocess.py
+EXPAND_TABLES      = python/expand_docx_tables.py
+
+# --- Цели ---
+.PHONY: all one _one show show-one _show-one list clean clean-temp
+
+# make без аргументов — один CABINET
+.DEFAULT_GOAL := one
+
+# --- Правило генерации переменных кабинета (для явных зависимостей) ---
+$(CABINET_VARS) $(CABINET_JSON): $(EXCEL) python/export_vars.py | $(TEMP_DIR)
+	$(PYTHON) python/export_vars.py "$(CABINET_ID)" "$(EXCEL)" "$(CABINET_VARS)"
 
 # --- Переменные кабинета грузятся только в подмейке ---
 ifeq ($(ONE),1)
+
+# Создаём TEMP и генерируем переменные до -include,
+# чтобы NAME/CODE/… были доступны для проверки ниже.
 $(shell if not exist "$(subst /,\,$(TEMP_DIR))" mkdir "$(subst /,\,$(TEMP_DIR))")
 $(shell $(PYTHON) python/export_vars.py "$(CABINET_ID)" "$(EXCEL)" "$(CABINET_VARS)")
 -include $(CABINET_VARS)
@@ -48,25 +63,23 @@ ifeq ($(strip $(NAME)),)
 $(error No data for CABINET_ID='$(CABINET_ID)' (CABINET='$(CABINET)') in $(EXCEL). Check 'id' column.)
 endif
 
-SOURCE = $(shell $(PYTHON) -c "import json, os; files=json.load(open('$(SECTIONS_JSON)')); print(' '.join([os.path.join('$(CABINET)', f) if not os.path.isabs(f) else f for f in files]))")
+SOURCE := $(shell $(PYTHON) -c "import json, os; files=json.load(open('$(SECTIONS_JSON)')); print(' '.join([os.path.join('$(CABINET)', f) if not os.path.isabs(f) else f for f in files]))")
 endif
-
-# --- Цели ---
-.PHONY: all one _one show show-one _show-one list clean clean-temp
-
-# make без аргументов — один CABINET
-.DEFAULT_GOAL := one
 
 # make all — собрать каждый найденный кабинет последовательным вызовом подмейки
 all:
-	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) _one && ) \
-		$(MAKE) --no-print-directory clean-temp && \
-		echo All done.
+	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) \
+	    POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) \
+	    EXPAND_TABLES=$(EXPAND_TABLES) _one && ) \
+	    $(MAKE) --no-print-directory clean-temp && \
+	    echo All done.
 
 # make — собрать один CABINET и подчистить TEMP
 one:
-	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) _one && \
-		$(MAKE) --no-print-directory clean-temp
+	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) \
+	    POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) \
+	    EXPAND_TABLES=$(EXPAND_TABLES) _one && \
+	    $(MAKE) --no-print-directory clean-temp
 
 # Сборка одного кабинета + постобработка
 _one: $(FINAL_TARGET)
@@ -103,23 +116,24 @@ _show-one:
 $(TEMP_DIR):
 	-@if not exist "$(subst /,\,$(TEMP_DIR))" mkdir "$(subst /,\,$(TEMP_DIR))" 2>nul
 
-$(TITLE_FILLED): $(TITLE_TEMPLATE) $(EXCEL) python/export_vars.py python/placeholder_filler.py | $(TEMP_DIR)
+# Титульник: заполнение плейсхолдеров + размножение таблиц UNIT/HMI
+$(TITLE_FILLED): $(TITLE_TEMPLATE) $(CABINET_JSON) python/placeholder_filler.py $(EXPAND_TABLES) | $(TEMP_DIR)
 	@echo "Rendering title page for $(CABINET)..."
 	$(PYTHON) python/placeholder_filler.py \
 		--template "$(TITLE_TEMPLATE)" \
 		--params   "$(CABINET_JSON)" \
 		--out      "$(TITLE_FILLED)"
+	@echo "Expanding UNIT/HMI tables..."
+	$(PYTHON) $(EXPAND_TABLES) "$(TITLE_FILLED)" "$(CABINET_JSON)"
 
-COMBINED_MD = $(TEMP_DIR)/combined.md
-
-# 1) Шаблон → combined.md: сначала препроцессор таблиц, потом подстановка {{ vars }}
+# combined.md: сначала препроцессор таблиц, потом подстановка {{ vars }}
 $(COMBINED_MD): $(SOURCE) $(CABINET_JSON) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) python/md_subst.py | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
 	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Substituting {{ vars }} in markdown..."
 	$(PYTHON) python/md_subst.py "$(CABINET_JSON)" "$(COMBINED_MD)" $(SOURCE)
 
-# 2) combined.md → main_content.docx
+# main_content.docx через Pandoc
 $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
 	@echo "Generating main content via Pandoc..."
 	@echo "Using sections: $(SOURCE)"
