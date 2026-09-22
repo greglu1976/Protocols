@@ -27,7 +27,6 @@ import sys
 import os
 from docx import Document
 
-
 # --- НАСТРОЙКИ СТИЛЕЙ ---
 TARGET_STYLE_NAME = "Основной текст с отступом 31"
 CAPTION_STYLE_NAME = "ДОК Таблица Текст Без Нумерации"
@@ -35,15 +34,11 @@ HEADER_STYLE_NAME = "ДОК Таблица Текст Центр"
 FIRST_COL_STYLE_NAME = "ДОК Таблица Текст Центр"
 OTHER_CELLS_STYLE_NAME = "ДОК Таблица Текст Центр"
 
-
 # --- КАРТА ТИПОВ ТАБЛИЦ ---
 # Ключ — подстрока в заголовке первого столбца (в нижнем регистре),
 # значение — имя типа таблицы.
 TABLE_TYPE_KEYWORDS = {
-    "ток":    "AnalogueTable",
-    "сигнал": "DiscreteTable",
-    "входное воздействие": "NewTable",
-    "точка входа": "NewTable2",    
+    "вход для проверки": "NewTable",      
 }
 
 # --- КАРТА ШИРИН ---
@@ -53,15 +48,9 @@ TABLE_TYPE_KEYWORDS = {
 # ЗАМЕНИТЕ значения на нужные вам. Ниже — примерные заглушки,
 # чтобы скрипт запускался «из коробки».
 TABLE_WIDTHS_PCT = {
-    ("AnalogueTable", 10): [13, 13, 18, 8, 8, 8, 8, 8, 8, 8],
-    ("AnalogueTable", 7):  [13, 13, 18, 8, 8, 20, 20],
-    ("DiscreteTable", 3):  [60, 20, 20],
-    ("DiscreteTable", 5):  [50, 20, 10, 10, 10],
-    ("DiscreteTable", 6):  [50, 18, 8, 8, 8, 8],
-    ("NewTable", 8):  [18, 14, 18, 14, 6, 6, 12, 12],
-    ("NewTable", 11):  [15, 12, 15, 11, 8, 6, 6, 6, 7, 7, 7],
-    ("NewTable", 10):  [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],
-    ("NewTable2", 7):  [16, 32, 16, 6, 6, 12, 12],    
+    ("NewTable", 6):  [16, 32, 16, 12, 12, 12],    
+    ("NewTable", 7):  [16, 32, 16, 9, 9, 9, 9],
+    ("NewTable", 10):  [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],     
 }
 
 # ============================================================
@@ -77,7 +66,6 @@ def set_table_layout_fixed(table):
         tblPr.append(layout)
     layout.set(qn('w:type'), 'fixed')
 
-
 def set_table_width_percent(table, percent=100):
     """Устанавливает ширину таблицы в процентах от доступной ширины."""
     tblPr = table._tbl.tblPr
@@ -87,7 +75,6 @@ def set_table_width_percent(table, percent=100):
         tblPr.append(tblW)
     tblW.set(qn('w:w'), str(percent * 50))
     tblW.set(qn('w:type'), 'pct')
-
 
 def set_table_grid(table, widths_pct):
     """
@@ -131,7 +118,6 @@ def set_table_grid(table, widths_pct):
             tcW.set(qn('w:w'), str(50 * widths_pct[idx]))
             tcW.set(qn('w:type'), 'pct')
 
-
 def detect_table_type(table):
     """Возвращает (type_name, n_cols) или (None, n_cols)."""
     if not table.rows:
@@ -142,7 +128,6 @@ def detect_table_type(table):
         if keyword in header_text:
             return type_name, n_cols
     return None, n_cols
-
 
 # ============================================================
 #  Работа со стилями
@@ -156,7 +141,6 @@ def replace_style(paragraph, target_style):
         paragraph.style = target_style
         return True
     return False
-
 
 # ============================================================
 #  main
