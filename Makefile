@@ -1,7 +1,6 @@
 # --- Переменные ---
 CABINET    ?= SET_240.01-0
 CABINET_ID ?= $(patsubst SET_%,%,$(CABINET))
-EXCEL      ?= vars_parsing.xlsx
 
 PANDOC ?= pandoc
 PYTHON ?= python
@@ -22,7 +21,6 @@ TEMP_DIR  = $(TEMP_ROOT)/$(CABINET)
 FINAL_TARGET = $(CABINET)/protocol_$(CABINET).docx
 
 TITLE_TEMPLATE = templates/title_page.docx
-TITLE_FILLED   = $(TEMP_DIR)/title_page_filled.docx
 SECTIONS_JSON  = $(CABINET)/sections.json
 
 MAIN_CONTENT = $(TEMP_DIR)/main_content.docx
@@ -32,44 +30,42 @@ REFERENCE = templates/title_page.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 
 PANDOC_OPTS = --standalone $(FILTERS) --reference-doc=$(REFERENCE)
-
-# УДАЛЕНЫ: CABINET_VARS, CABINET_JSON (так как export_vars.py удален)
-# Если gen_tech_tables.py нужен JSON, ему придется генерировать его самому или брать из Excel напрямую
+#PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE) --lua-filter=lua/start-at-10.lua
 
 POSTPROCESS        = python/postprocess.py
 TABLE_PREPROCESSOR = python/preprocess.py
-GEN_TABLES         = python/gen_tech_tables.py
+EXPAND_TABLES      = python/expand_docx_tables.py
 
 # --- Цели ---
 .PHONY: all one _one show show-one _show-one list clean clean-temp
 
+# make без аргументов — один CABINET
 .DEFAULT_GOAL := one
 
-# УДАЛЕНО: Правило генерации $(CABINET_VARS) и $(CABINET_JSON) через export_vars.py
-
+# --- Переменные кабинета грузятся только в подмейке ---
 ifeq ($(ONE),1)
-# Создаём TEMP
-$(shell if not exist "$(subst /,\,$(TEMP_DIR))" mkdir "$(subst /,\,$(TEMP_DIR))")
 
-# УДАЛЕНО: Вызов export_vars.py и include cabinet_vars.mk
-# Если проверки NAME/CODE критичны, их нужно перенести в другой скрипт или убрать
-
+# Получаем список исходных файлов из sections.json
 SOURCE := $(shell $(PYTHON) -c "import json, os; files=json.load(open('$(SECTIONS_JSON)')); print(' '.join([os.path.join('$(CABINET)', f) if not os.path.isabs(f) else f for f in files]))")
+
 endif
 
+# make all — собрать каждый найденный кабинет последовательным вызовом подмейки
 all:
 	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) \
 	    POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) \
-	    _one && ) \
+	    EXPAND_TABLES=$(EXPAND_TABLES) _one && ) \
 	    $(MAKE) --no-print-directory clean-temp && \
 	    echo All done.
 
+# make — собрать один CABINET и подчистить TEMP
 one:
 	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) \
 	    POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) \
-	    _one && \
+	    EXPAND_TABLES=$(EXPAND_TABLES) _one && \
 	    $(MAKE) --no-print-directory clean-temp
 
+# Сборка одного кабинета + постобработка
 _one: $(FINAL_TARGET)
 ifeq ($(TEST),1)
 	@echo "[TEST MODE] Skipping post-processing for $(CABINET)..."
@@ -85,7 +81,6 @@ list:
 show:
 	@echo "Default CABINET = $(CABINET)"
 	@echo "All CABINETS    = $(CABINETS)"
-	@echo "EXCEL           = $(EXCEL)"
 
 show-one:
 	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) _show-one
@@ -93,28 +88,16 @@ show-one:
 _show-one:
 	@echo "CABINET     = $(CABINET)"
 	@echo "CABINET_ID  = $(CABINET_ID)"
-	@echo "EXCEL       = $(EXCEL)"
 
 $(TEMP_DIR):
 	-@if not exist "$(subst /,\,$(TEMP_DIR))" mkdir "$(subst /,\,$(TEMP_DIR))" 2>nul
 
-# Титульник: генерация технических таблиц новым скриптом
-$(TITLE_FILLED): $(TITLE_TEMPLATE) $(GEN_TABLES) | $(TEMP_DIR)
-	@echo "Generating technical tables for $(CABINET)..."
-	$(PYTHON) $(GEN_TABLES) "$(CABINET_ID)" "$(TITLE_TEMPLATE)" "$(TITLE_FILLED)"
-
-# combined.md: препроцессор таблиц 
-# УДАЛЕНО: md_subst.py и зависимость от CABINET_JSON
+# combined.md: препроцессор таблиц, затем простая конкатенация исходников
 $(COMBINED_MD): $(SOURCE) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
 	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
-	@echo "Combining markdown files..."
-	# Здесь предполагается, что объединение файлов происходит без подстановки переменных,
-	# либо эта логика перенесена в TABLE_PREPROCESSOR или другой скрипт.
-	# Если нужна простая конкатенация, можно использовать type/copy или python-скрипт.
-	# Для примера оставим заглушку, что файл формируется preprocesser'ом или просто копируется.
-	# В реальном проекте здесь может быть вызов скрипта для слияния .md файлов.
-	@type $(SOURCE) > "$(COMBINED_MD)"
+	@echo "Combining markdown..."
+	$(PYTHON) -c "import sys; out=open(sys.argv[1],'w',encoding='utf-8'); [out.write(open(p,encoding='utf-8').read()+'\n\n') for p in sys.argv[2:]]; out.close()" "$(COMBINED_MD)" $(SOURCE)
 
 # main_content.docx через Pandoc
 $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
@@ -122,16 +105,18 @@ $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
 	@echo "Using sections: $(SOURCE)"
 	$(PANDOC) "$(COMBINED_MD)" -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
-$(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
+# Мерж титульника (шаблон как есть) и основного содержимого
+$(FINAL_TARGET): $(TITLE_TEMPLATE) $(MAIN_CONTENT) python/docx_merger.py
 	@echo "Merging documents..."
-	$(PYTHON) python/docx_merger.py "$(TITLE_FILLED)" "$(MAIN_CONTENT)" "$(FINAL_TARGET)"
+	$(PYTHON) python/docx_merger.py "$(TITLE_TEMPLATE)" "$(MAIN_CONTENT)" "$(FINAL_TARGET)"
 	@echo "Cleaning up intermediate files..."
 	-@if exist "$(subst /,\,$(MAIN_CONTENT))" del /Q "$(subst /,\,$(MAIN_CONTENT))"
-	-@if exist "$(subst /,\,$(TITLE_FILLED))" del /Q "$(subst /,\,$(TITLE_FILLED))"
 
+# Убираем все финальные docx по каждому кабинету и чистим TEMP
 clean:
 	-@$(foreach c,$(CABINETS),if exist "$(subst /,\,$(c))\protocol_$(c).docx" del /Q "$(subst /,\,$(c))\protocol_$(c).docx" &) \
 		if exist "$(subst /,\,$(TEMP_ROOT))" rmdir /S /Q "$(subst /,\,$(TEMP_ROOT))" 2>nul
 
+# Только удаление TEMP
 clean-temp:
 	-@if exist "$(subst /,\,$(TEMP_ROOT))" rmdir /S /Q "$(subst /,\,$(TEMP_ROOT))" 2>nul
