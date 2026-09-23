@@ -31,7 +31,8 @@ COMBINED_MD  = $(TEMP_DIR)/combined.md
 REFERENCE = templates/title_page.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 
-PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE)
+#PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE)
+PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE) --lua-filter=lua/start-at-10.lua
 
 CABINET_VARS = $(TEMP_DIR)/cabinet_vars.mk
 CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
