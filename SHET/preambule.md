@@ -1,5 +1,5 @@
 ---
-chapters: true
+chapters: false
 numberSections: false
 linkReferences: true
 figureTitle: "Рисунок"

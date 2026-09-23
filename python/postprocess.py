@@ -50,6 +50,7 @@ TABLE_TYPE_KEYWORDS = {
 TABLE_WIDTHS_PCT = {
     ("NewTable", 6):  [16, 32, 16, 12, 12, 12],    
     ("NewTable", 7):  [16, 32, 16, 9, 9, 9, 9],
+    ("NewTable", 8):  [16, 33, 16, 7, 7, 7, 7, 7],    
     ("NewTable", 10):  [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],     
 }
 
