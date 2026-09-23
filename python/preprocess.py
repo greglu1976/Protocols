@@ -68,7 +68,6 @@ def run_pipeline(md_path):
     
     # Этап 1: Таблицы
     new_content = process_tables(content, md_dir)
-    print(md_path)
     # Этап 2: Здесь будут другие обработчики
     # new_content = process_images(new_content, md_dir)
     # new_content = process_calculations(new_content)
