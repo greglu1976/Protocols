@@ -1,5 +1,5 @@
 # --- Переменные ---
-CABINET    ?= SET_240.01-0
+CABINET    ?= SET_210.05-0
 CABINET_ID ?= $(patsubst SET_%,%,$(CABINET))
 EXCEL      ?= vars_parsing.xlsx
 
@@ -39,7 +39,7 @@ CABINET_JSON = $(TEMP_DIR)/cabinet_vars.json
 
 POSTPROCESS        = python/postprocess.py
 TABLE_PREPROCESSOR = python/preprocess.py
-EXPAND_TABLES      = python/expand_docx_tables.py
+EXPAND_MD_TABLES   = python/expand_md_tables.py
 
 # --- Цели ---
 .PHONY: all one _one show show-one _show-one list clean clean-temp
@@ -71,7 +71,7 @@ endif
 all:
 	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) \
 	    POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) \
-	    EXPAND_TABLES=$(EXPAND_TABLES) _one && ) \
+	    EXPAND_MD_TABLES=$(EXPAND_MD_TABLES) _one && ) \
 	    $(MAKE) --no-print-directory clean-temp && \
 	    echo All done.
 
@@ -79,7 +79,7 @@ all:
 one:
 	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) \
 	    POSTPROCESS=$(POSTPROCESS) TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) \
-	    EXPAND_TABLES=$(EXPAND_TABLES) _one && \
+	    EXPAND_MD_TABLES=$(EXPAND_MD_TABLES) _one && \
 	    $(MAKE) --no-print-directory clean-temp
 
 # Сборка одного кабинета + постобработка
@@ -117,22 +117,23 @@ _show-one:
 $(TEMP_DIR):
 	-@if not exist "$(subst /,\,$(TEMP_DIR))" mkdir "$(subst /,\,$(TEMP_DIR))" 2>nul
 
-# Титульник: заполнение плейсхолдеров + размножение таблиц UNIT/HMI
-$(TITLE_FILLED): $(TITLE_TEMPLATE) $(CABINET_JSON) python/placeholder_filler.py $(EXPAND_TABLES) | $(TEMP_DIR)
+# Титульник: только подстановка {{ vars }} — без размножения таблиц
+$(TITLE_FILLED): $(TITLE_TEMPLATE) $(CABINET_JSON) python/placeholder_filler.py | $(TEMP_DIR)
 	@echo "Rendering title page for $(CABINET)..."
 	$(PYTHON) python/placeholder_filler.py \
 		--template "$(TITLE_TEMPLATE)" \
 		--params   "$(CABINET_JSON)" \
 		--out      "$(TITLE_FILLED)"
-	@echo "Expanding UNIT/HMI tables..."
-	$(PYTHON) $(EXPAND_TABLES) "$(TITLE_FILLED)" "$(CABINET_JSON)"
 
-# combined.md: сначала препроцессор таблиц, потом подстановка {{ vars }}
-$(COMBINED_MD): $(SOURCE) $(CABINET_JSON) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) python/md_subst.py | $(TEMP_DIR)
+# combined.md: препроцессор таблиц → подстановка {{ vars }} → размножение <<REPEAT_*>> / <<UNITS_*>>
+$(COMBINED_MD): $(SOURCE) $(CABINET_JSON) $(SECTIONS_JSON) \
+                $(TABLE_PREPROCESSOR) python/md_subst.py $(EXPAND_MD_TABLES) | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
 	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Substituting {{ vars }} in markdown..."
 	$(PYTHON) python/md_subst.py "$(CABINET_JSON)" "$(COMBINED_MD)" $(SOURCE)
+	@echo "Expanding UNIT/HMI/PRV tables in markdown..."
+	$(PYTHON) $(EXPAND_MD_TABLES) "$(COMBINED_MD)" "$(CABINET_JSON)"
 
 # main_content.docx через Pandoc
 $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua

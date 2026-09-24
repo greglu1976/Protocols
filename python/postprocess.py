@@ -11,6 +11,9 @@
    - Первый столбец: 'ДОК Таблица Текст Центр'
    - Остальные ячейки: 'ДОК Таблица Текст Центр'
 4. Ширины столбцов таблиц задаются по типу (см. TABLE_WIDTHS_PCT).
+5. В подписях и ячейках таблиц интервалы 'Перед'/'После' ЖЁСТКО
+   выставляются в 0 пт. Это перебивает значение, которое тянется
+   по цепочке стилей (Word показывает 3 пт, хотя в целевом стиле 0).
 
 Тип таблицы определяется по ключевому слову в заголовке первого столбца:
   - "Ток"    -> AnalogueTable
@@ -22,6 +25,7 @@
 
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.shared import Pt
 
 import sys
 import os
@@ -35,22 +39,17 @@ FIRST_COL_STYLE_NAME = "ДОК Таблица Текст Центр"
 OTHER_CELLS_STYLE_NAME = "ДОК Таблица Текст Центр"
 
 # --- КАРТА ТИПОВ ТАБЛИЦ ---
-# Ключ — подстрока в заголовке первого столбца (в нижнем регистре),
-# значение — имя типа таблицы.
 TABLE_TYPE_KEYWORDS = {
-    "вход для проверки": "NewTable",      
+    "вход для проверки": "NewTable",
+    "параметр": "NewTable2",
 }
 
 # --- КАРТА ШИРИН ---
-# Ключ: (имя_типа, число_столбцов)
-# Значение: список процентов, сумма = 100.
-#
-# ЗАМЕНИТЕ значения на нужные вам. Ниже — примерные заглушки,
-# чтобы скрипт запускался «из коробки».
 TABLE_WIDTHS_PCT = {
-    ("NewTable", 6):  [16, 32, 16, 12, 12, 12],    
+    ("NewTable2", 2):  [30, 70],
+    ("NewTable", 6):  [16, 32, 16, 12, 12, 12],
     ("NewTable", 7):  [16, 32, 16, 9, 9, 9, 9],
-    ("NewTable", 10):  [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],     
+    ("NewTable", 10): [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],
 }
 
 # ============================================================
@@ -77,10 +76,7 @@ def set_table_width_percent(table, percent=100):
     tblW.set(qn('w:type'), 'pct')
 
 def set_table_grid(table, widths_pct):
-    """
-    Прописывает ширины столбцов в tblGrid и в каждой ячейке.
-    widths_pct: список процентов, сумма = 100.
-    """
+    """Прописывает ширины столбцов в tblGrid и в каждой ячейке."""
     total = sum(widths_pct)
     if total != 100:
         raise ValueError(f"Сумма ширин должна быть 100, а не {total}")
@@ -88,24 +84,19 @@ def set_table_grid(table, widths_pct):
     tbl = table._tbl
     tblPr = tbl.tblPr
 
-    # 1. Ширина таблицы = 100%
     set_table_width_percent(table, 100)
-
-    # 2. Фиксированный layout
     set_table_layout_fixed(table)
 
-    # 3. Переписываем tblGrid
     old_grid = tbl.find(qn('w:tblGrid'))
     if old_grid is not None:
         tbl.remove(old_grid)
     grid = OxmlElement('w:tblGrid')
     for pct in widths_pct:
         gc = OxmlElement('w:gridCol')
-        gc.set(qn('w:w'), str(50 * pct))  # 5000 twips = 100%
+        gc.set(qn('w:w'), str(50 * pct))
         grid.append(gc)
     tblPr.addnext(grid)
 
-    # 4. Прописываем ширину каждой ячейки
     for row in table.rows:
         for idx, cell in enumerate(row.cells):
             if idx >= len(widths_pct):
@@ -128,6 +119,20 @@ def detect_table_type(table):
         if keyword in header_text:
             return type_name, n_cols
     return None, n_cols
+
+# ============================================================
+#  Форсирование интервалов абзаца
+# ============================================================
+
+def force_zero_spacing(paragraph, line_spacing=None):
+    """Явно проставляет 0 пт в 'Перед'/'После' на сам абзац.
+    Это перебивает значение, которое тянется по цепочке стилей
+    (Word показывает 'Перед: 3 пт', хотя в целевом стиле 0)."""
+    pf = paragraph.paragraph_format
+    pf.space_before = Pt(0)
+    pf.space_after  = Pt(0)
+    if line_spacing is not None:
+        pf.line_spacing = line_spacing
 
 # ============================================================
 #  Работа со стилями
@@ -164,7 +169,6 @@ def main():
     print(f"Post-processing: {docx_path}")
     doc = Document(docx_path)
 
-    # Проверяем наличие всех требуемых стилей
     available_styles = {s.name for s in doc.styles}
     required_styles = [
         TARGET_STYLE_NAME,
@@ -190,9 +194,11 @@ def main():
     # 1. Основной текст документа
     for p in doc.paragraphs:
         if "Таблица" in p.text:
-            if replace_style(p, style_caption):
-                replaced += 1
+            replace_style(p, style_caption)
+            force_zero_spacing(p)          # подписи таблиц: 0/0
+            replaced += 1
         else:
+            # для основного текста интервалы не форсируем
             if replace_style(p, style_body):
                 replaced += 1
 
@@ -212,7 +218,6 @@ def main():
                 )
                 set_table_width_percent(table, 100)
         else:
-            # Fallback: просто растянуть на 100%
             set_table_width_percent(table, 100)
 
         for row_idx, row in enumerate(table.rows):
@@ -224,8 +229,8 @@ def main():
                     current_target_style = style_first_col
 
                 for p in cell.paragraphs:
-                    if replace_style(p, current_target_style):
-                        replaced += 1
+                    replace_style(p, current_target_style)
+                    force_zero_spacing(p)  # ячейки: 0/0
 
     print(f"Replaced paragraphs: {replaced}")
     doc.save(docx_path)

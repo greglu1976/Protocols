@@ -1,5 +1,8 @@
 [
     "../SHET/preambule.md",
+    "../SHET/general/section_1.md",
+    "../SHET/general/section_2.md",
+    "../SHET/general/section_3.md",
     "../SHET/sec_test_rza.md",
     "../SHET/dzt.md",
     "../SHET/GZ001/gzsign.md",
