@@ -181,8 +181,16 @@ def generate_table_ascii(file_abs, sheet_name='Лист1'):
                 for ci, ch in enumerate(padded_val):
                     canvas[y1 + 1][x1 + 1 + ci] = ch
 
+    # Определяем, сколько строк занимает заголовок:
+    # если в первых двух строках есть объединения — заголовок двухуровневый,
+    # иначе — одноуровневый.
+    header_has_merge = any(
+        min_r <= 2 and max_r >= 1 and (min_r != max_r or min_c != max_c)
+        for (min_r, min_c, max_r, max_c) in unique_ranges
+    )
+    header_end_row = 2 if header_has_merge else 1
+
     # Двойная линия заголовка
-    header_end_row = 2
     if header_end_row <= max_row:
         hy = row_starts[header_end_row]
         for x in range(total_width - 1):

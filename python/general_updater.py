@@ -23,19 +23,12 @@ def write_table_xlsx(path, info_name, info_tag, rows):
     ws = wb.active
     ws.title = "Лист1"
 
-    # Строка 1 — объединённый заголовок (без суффикса)
-    ws.merge_cells("A1:B1")
-    ws["A1"] = base
-    ws["A1"].alignment = openpyxl.styles.Alignment(
-        horizontal="center", vertical="center", wrap_text=True
-    )
+    # Строка 1 — шапка
+    ws["A1"] = "Параметр"
+    ws["B1"] = "Значение"
 
-    # Строка 2 — шапка
-    ws["A2"] = "Параметр"
-    ws["B2"] = "Значение"
-
-    # Строки 3+ — данные
-    r = 3
+    # Строки 2+ — данные
+    r = 2
     for row in rows:
         for c, v in enumerate(row, start=1):
             cell = ws.cell(row=r, column=c, value=v)
