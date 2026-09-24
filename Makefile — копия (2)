@@ -24,9 +24,6 @@ TITLE_TEMPLATE = templates/title_page.docx
 TITLE_FILLED   = $(TEMP_DIR)/title_page_filled.docx
 SECTIONS_JSON  = $(CABINET)/sections.json
 
-GENERAL_TEMPLATE = templates/general.md
-GENERAL_MD       = $(CABINET)/general.md
-
 MAIN_CONTENT = $(TEMP_DIR)/main_content.docx
 COMBINED_MD  = $(TEMP_DIR)/combined.md
 VARS_JSON    = $(TEMP_DIR)/vars.json
@@ -41,7 +38,6 @@ POSTPROCESS        = python/postprocess.py
 GEN_TECH_TABLES    = python/gen_tech_tables.py
 TABLE_PREPROCESSOR = python/preprocess.py
 FILL_TITLE         = python/fill_title.py
-GENERAL_UPDATER    = python/general_updater.py
 
 # --- Цели ---
 .PHONY: all one _one show show-one _show-one list clean clean-temp
@@ -62,7 +58,6 @@ all:
 	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) CABINET_ID=$(patsubst SET_%,%,$(c)) \
 	    POSTPROCESS=$(POSTPROCESS) GEN_TECH_TABLES=$(GEN_TECH_TABLES) \
 	    TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) FILL_TITLE=$(FILL_TITLE) \
-	    GENERAL_UPDATER=$(GENERAL_UPDATER) \
 	    _one && ) \
 	    $(MAKE) --no-print-directory clean-temp && \
 	    echo All done.
@@ -71,7 +66,6 @@ one:
 	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) CABINET_ID=$(CABINET_ID) \
 	    POSTPROCESS=$(POSTPROCESS) GEN_TECH_TABLES=$(GEN_TECH_TABLES) \
 	    TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) FILL_TITLE=$(FILL_TITLE) \
-	    GENERAL_UPDATER=$(GENERAL_UPDATER) \
 	    _one && \
 	    $(MAKE) --no-print-directory clean-temp
 
@@ -107,18 +101,13 @@ $(VARS_JSON): $(GEN_TECH_TABLES) vars_parsing.xlsx | $(TEMP_DIR)
 	@echo "Generating vars.json for CABINET_ID=$(CABINET_ID)..."
 	$(PYTHON) $(GEN_TECH_TABLES) $(CABINET_ID) > "$(VARS_JSON)"
 
-# general.md с блоками INSERT_TABLE + генерация xlsx в $(CABINET)/
-$(GENERAL_MD): $(GENERAL_TEMPLATE) $(VARS_JSON) $(GENERAL_UPDATER)
-	@echo "Generating xlsx and general.md for CABINET_ID=$(CABINET_ID)..."
-	$(PYTHON) $(GENERAL_UPDATER) "$(VARS_JSON)" "$(GENERAL_TEMPLATE)" "$(GENERAL_MD)" "$(CABINET)"
-
 # Заполненный титульник
 $(TITLE_FILLED): $(TITLE_TEMPLATE) $(VARS_JSON) $(FILL_TITLE)
 	@echo "Rendering title page for CABINET_ID=$(CABINET_ID)..."
 	$(PYTHON) $(FILL_TITLE) $(CABINET_ID) "$(VARS_JSON)"
 
 # combined.md: препроцессор таблиц, затем конкатенация исходников
-$(COMBINED_MD): $(SOURCE) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) $(GENERAL_MD) | $(TEMP_DIR)
+$(COMBINED_MD): $(SOURCE) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
 	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Combining markdown..."
@@ -139,10 +128,8 @@ $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
 
 # Убираем все финальные docx по каждому кабинету и чистим TEMP
 clean:
-	-@$(foreach c,$(CABINETS), \
-	    if exist "$(subst /,\,$(c))\general.md" del /Q "$(subst /,\,$(c))\general.md" & \
-	    if exist "$(subst /,\,$(c))\protocol_$(c).docx" del /Q "$(subst /,\,$(c))\protocol_$(c).docx" &) \
-	    if exist "$(subst /,\,$(TEMP_ROOT))" rmdir /S /Q "$(subst /,\,$(TEMP_ROOT))" 2>nul
+	-@$(foreach c,$(CABINETS),if exist "$(subst /,\,$(c))\protocol_$(c).docx" del /Q "$(subst /,\,$(c))\protocol_$(c).docx" &) \
+		if exist "$(subst /,\,$(TEMP_ROOT))" rmdir /S /Q "$(subst /,\,$(TEMP_ROOT))" 2>nul
 
 # Только удаление TEMP
 clean-temp:
