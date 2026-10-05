@@ -22,6 +22,7 @@ CAPTION_STYLE_NAME = "ДОК Таблица Текст Без Нумерации
 HEADER_STYLE_NAME = "ДОК Таблица Текст Центр"
 FIRST_COL_STYLE_NAME = "ДОК Таблица Текст Центр"
 OTHER_CELLS_STYLE_NAME = "ДОК Таблица Текст Центр"
+IMAGE_STYLE_NAME = "ДОК Базовый с маленьким интервалом"
 
 # --- МАРКЕР СПИСКА ---
 NEW_BULLET_MARKER = "–"
@@ -35,6 +36,7 @@ LIST_TAB_TWIPS        = 850     # таб-стоп для текста после
 TABLE_TYPE_KEYWORDS = {
     "вход для проверки": "NewTable",
     "параметр": "NewTable2",
+    "№ п/п": "PerechenTable"
 }
 
 # --- КАРТА ШИРИН ---
@@ -44,6 +46,7 @@ TABLE_WIDTHS_PCT = {
     ("NewTable", 7):  [16, 32, 16, 9, 9, 9, 9],
     ("NewTable", 8):  [16, 33, 16, 7, 7, 7, 7, 7],
     ("NewTable", 10): [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],
+    ("PerechenTable", 7): [5, 30, 10, 10, 10, 11, 24],    
 }
 
 
@@ -119,14 +122,21 @@ def detect_table_type(table):
 #  Стили
 # ============================================================
 
-def replace_style(paragraph, target_style):
+def replace_style(paragraph, target_style, force=False):
     if paragraph.style is None:
         return False
-    if paragraph.style.name in ("Обычный", "Normal", "Основной текст", "Body Text"):
+    if force or paragraph.style.name in (
+        "Обычный", "Normal", "Основной текст", "Body Text"
+    ):
         paragraph.style = target_style
         return True
     return False
 
+
+def paragraph_has_image(paragraph):
+    p = paragraph._p
+    return bool(p.findall('.//' + qn('w:drawing'))) or \
+           bool(p.findall('.//' + qn('w:pict')))
 
 # ============================================================
 #  numbering.xml: маркеры + отступы + таб
@@ -247,6 +257,7 @@ def main():
     required_styles = [
         TARGET_STYLE_NAME, CAPTION_STYLE_NAME,
         HEADER_STYLE_NAME, FIRST_COL_STYLE_NAME, OTHER_CELLS_STYLE_NAME,
+        IMAGE_STYLE_NAME,
     ]
     missing_styles = [s for s in required_styles if s not in available_styles]
     if missing_styles:
@@ -259,12 +270,17 @@ def main():
     style_header      = doc.styles[HEADER_STYLE_NAME]
     style_first_col   = doc.styles[FIRST_COL_STYLE_NAME]
     style_other_cells = doc.styles[OTHER_CELLS_STYLE_NAME]
+    style_image       = doc.styles[IMAGE_STYLE_NAME]
 
     replaced = 0
 
     # 1. Основной текст
     for p in doc.paragraphs:
-        if "Таблица" in p.text:
+        if paragraph_has_image(p):
+            if replace_style(p, style_image, force=True):
+                replaced += 1
+            print(f"  Image paragraph style set: {p.style.name}")
+        elif "Таблица" in p.text:
             if replace_style(p, style_caption):
                 replaced += 1
         else:

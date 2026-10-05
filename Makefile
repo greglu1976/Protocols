@@ -34,8 +34,15 @@ VARS_JSON    = $(TEMP_DIR)/vars.json
 REFERENCE = templates/title_page.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 
-PANDOC_OPTS = --standalone $(FILTERS) --reference-doc=$(REFERENCE)
+#PANDOC_OPTS = --standalone $(FILTERS) --reference-doc=$(REFERENCE)
 #PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE) --lua-filter=lua/start-at-10.lua
+
+PANDOC_OPTS = --standalone --number-sections $(FILTERS) \
+              --reference-doc=$(REFERENCE) \
+              --lua-filter=lua/start-at-10.lua \
+              --resource-path=img;$(CABINET);.
+
+
 
 POSTPROCESS        = python/postprocess.py
 GEN_TECH_TABLES    = python/gen_tech_tables.py
@@ -123,6 +130,7 @@ $(COMBINED_MD): $(SOURCE) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) $(GENERAL_MD) |
 	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Combining markdown..."
 	$(PYTHON) -c "import sys; out=open(sys.argv[1],'w',encoding='utf-8'); [out.write(open(p,encoding='utf-8').read()+'\n\n') for p in sys.argv[2:]]; out.close()" "$(COMBINED_MD)" $(SOURCE)
+
 
 # main_content.docx через Pandoc
 $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
