@@ -37,9 +37,8 @@ FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 #PANDOC_OPTS = --standalone $(FILTERS) --reference-doc=$(REFERENCE)
 #PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE) --lua-filter=lua/start-at-10.lua
 
-PANDOC_OPTS = --standalone --number-sections $(FILTERS) \
+PANDOC_OPTS = --standalone $(FILTERS) \
               --reference-doc=$(REFERENCE) \
-              --lua-filter=lua/start-at-10.lua \
               --resource-path=img;$(CABINET);.
 
 
