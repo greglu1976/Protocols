@@ -24,6 +24,5 @@ _**Заключение:**_
 :::
 
 
-![](final_page.png)
 
-@@SIGNATURE_TABLE_START@@
+%%SIGNATURE_TABLE%%

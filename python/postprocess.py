@@ -5,9 +5,13 @@
 Плюс правит word/numbering.xml: маркеры списков → тире,
 абзац по левому краю, первая строка — с отступом 1 см,
 таб-стоп — на 1.5 см.
+Также вставляет таблицу подписей на место маркера @@SIGNATURE_TABLE@@.
 """
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.shared import Pt, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
 
 import sys
 import os
@@ -15,6 +19,9 @@ import re
 import shutil
 import zipfile
 from docx import Document
+
+# --- МАРКЕР ДЛЯ ВСТАВКИ ТАБЛИЦЫ ПОДПИСЕЙ ---
+SIGNATURE_TABLE_MARKER = "%%SIGNATURE_TABLE%%"
 
 # --- НАСТРОЙКИ СТИЛЕЙ ---
 TARGET_STYLE_NAME = "Основной текст с отступом 31"
@@ -46,8 +53,11 @@ TABLE_WIDTHS_PCT = {
     ("NewTable", 7):  [16, 32, 16, 9, 9, 9, 9],
     ("NewTable", 8):  [16, 33, 16, 7, 7, 7, 7, 7],
     ("NewTable", 10): [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],
-    ("PerechenTable", 7): [5, 30, 10, 10, 10, 11, 24],    
+    ("PerechenTable", 7): [5, 30, 10, 10, 10, 11, 24],
 }
+
+# --- ШИРИНЫ СТОЛБЦОВ ТАБЛИЦЫ ПОДПИСЕЙ (см) ---
+SIGNATURE_TABLE_WIDTHS_CM = [4.5, 4.0, 5.5, 3.0]
 
 
 # ============================================================
@@ -118,6 +128,255 @@ def detect_table_type(table):
     return None, n_cols
 
 
+def set_cell_text(cell, text, bold=False, align="left", size=None):
+    """Записывает текст в ячейку с нужным форматированием."""
+    cell.text = ""
+    p = cell.paragraphs[0]
+    run = p.add_run(text)
+    run.bold = bold
+    if size:
+        run.font.size = Pt(size)
+    if align == "center":
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    elif align == "right":
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    else:
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+
+def set_bottom_border(cell):
+    """Рисует нижнюю границу ячейки, не затирая остальные границы."""
+    tcPr = cell._tc.get_or_add_tcPr()
+    borders = tcPr.find(qn('w:tcBorders'))
+    if borders is None:
+        borders = OxmlElement('w:tcBorders')
+        tcPr.append(borders)
+    # Удаляем старый bottom, если есть
+    old_bottom = borders.find(qn('w:bottom'))
+    if old_bottom is not None:
+        borders.remove(old_bottom)
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '6')       # толщина в 1/8 pt
+    bottom.set(qn('w:color'), '000000')
+    borders.append(bottom)
+
+
+def find_paragraph_by_text(doc, text):
+    """Возвращает первый абзац, содержащий указанный текст, или None."""
+    for p in doc.paragraphs:
+        if text in p.text:
+            return p
+    return None
+
+def clear_table_borders(table):
+    """Убирает все границы у таблицы целиком."""
+    tblPr = table._tbl.tblPr
+    # Удаляем старый tblBorders, если есть
+    old = tblPr.find(qn('w:tblBorders'))
+    if old is not None:
+        tblPr.remove(old)
+
+    borders = OxmlElement('w:tblBorders')
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        el = OxmlElement(f'w:{edge}')
+        el.set(qn('w:val'), 'none')
+        el.set(qn('w:sz'), '0')
+        el.set(qn('w:space'), '0')
+        el.set(qn('w:color'), 'auto')
+        borders.append(el)
+    tblPr.append(borders)
+
+def clear_cell_borders(cell):
+    """Снимает все границы у одной ячейки."""
+    tcPr = cell._tc.get_or_add_tcPr()
+    old = tcPr.find(qn('w:tcBorders'))
+    if old is not None:
+        tcPr.remove(old)
+    borders = OxmlElement('w:tcBorders')
+    for edge in ('top', 'left', 'bottom', 'right'):
+        el = OxmlElement(f'w:{edge}')
+        el.set(qn('w:val'), 'none')
+        el.set(qn('w:sz'), '0')
+        el.set(qn('w:space'), '0')
+        el.set(qn('w:color'), 'auto')
+        borders.append(el)
+    tcPr.append(borders)
+
+
+def clear_all_cell_borders(table):
+    """Снимает границы у всех ячеек таблицы."""
+    for row in table.rows:
+        for cell in row.cells:
+            clear_cell_borders(cell)
+
+
+def apply_normal_style_to_cells(table, doc):
+    """
+    Применяет стиль "Обычный1" ко всем абзацам во всех ячейках таблицы.
+    "Обычный" — это встроенный стиль Word (в python-docx называется "Normal").
+    """
+    normal_style = None
+    # Пробуем найти "Обычный" или "Normal"
+    for name in ("Обычный1", "Normal1"):
+        try:
+            normal_style = doc.styles[name]
+            break
+        except KeyError:
+            continue
+
+    if normal_style is None:
+        print("  [warn] Стиль 'Обычный'/'Normal' не найден — пропуск",
+              file=sys.stderr)
+        return
+
+    for row in table.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                try:
+                    p.style = normal_style
+                except Exception as e:
+                    print(f"  [warn] Не удалось применить стиль: {e}",
+                          file=sys.stderr)
+
+
+
+def build_signature_table(doc):
+    # 7 строк:
+    #   0 — пустая (вверху)
+    #   1 — "Проверку произвели:" + линии/подписи
+    #   2 — пустая (нижняя половина merge)
+    #   3 — "Протокол проверил:" + линии/подписи
+    #   4 — пустая (нижняя половина merge)
+    #   5 — пустая (между "Протокол проверил:" и "М.П.")
+    #   6 — "М.П." + текст-предупреждение
+    table = doc.add_table(rows=7, cols=4)
+    try:
+        table.style = "Table Grid"
+    except KeyError:
+        pass
+
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+
+    for row in table.rows:
+        for idx, cell in enumerate(row.cells):
+            cell.width = Cm(SIGNATURE_TABLE_WIDTHS_CM[idx])
+
+    # ── merge в первом столбце ──
+    table.cell(1, 0).merge(table.cell(2, 0))   # "Проверку произвели:"
+    table.cell(3, 0).merge(table.cell(4, 0))   # "Протокол проверил:"
+
+    # "М.П." и текст-предупреждение — в последней строке
+    table.cell(6, 1).merge(table.cell(6, 3))
+
+    # ── Текст в левом столбце ──
+    set_cell_text(table.cell(1, 0), "Проверку произвели:")
+    set_cell_text(table.cell(3, 0), "Протокол проверил:")
+    set_cell_text(table.cell(6, 0), "М.П.", bold=True, align="center")
+
+    # ── Линии + подписи в ОДНОЙ ячейке (строки 1 и 3) ──
+    SIGNS = {
+        1: ("_" * 20, "(подпись)"),
+        2: ("_" * 25, "(расшифровка подписи)"),
+        3: ("_" * 13, "(дата)"),
+    }
+    for row_idx in (1, 3):
+        for col, (line, caption) in SIGNS.items():
+            set_cell_text_two_lines(
+                table.cell(row_idx, col),
+                line, caption,
+                line_size=11,
+                caption_size=9,
+            )
+
+    # ── Текст-предупреждение ──
+    merged_cell = table.cell(6, 1)
+    merged_cell.text = ""
+    lines = [
+        "Частичная или полная перепечатка и размножение только "
+        "с разрешения испытательной лаборатории.",
+        "Исправления не допускаются.",
+        "Протокол распространяется только на элементы электроустановки "
+        "или оборудования, подвергнутые измерениям (проверке).",
+    ]
+    for i, line in enumerate(lines):
+        p = merged_cell.paragraphs[0] if i == 0 else merged_cell.add_paragraph()
+        run = p.add_run(line)
+        run.font.size = Pt(11)
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    # ── Снять границы ──
+    clear_all_cell_borders(table)
+    clear_table_borders(table)
+
+    # ── Стиль шрифта ячеек → "Обычный" ──
+    apply_normal_style_to_cells(table, doc)
+
+    return table
+
+
+
+
+def set_cell_text_two_lines(cell, line_text, caption_text,
+                            line_size=11, caption_size=9):
+    """
+    Кладёт в ячейку два параграфа:
+      1) линию (подчёркивания)
+      2) подпись под ней
+    Оба по центру.
+    """
+    # Оставляем ровно один параграф в ячейке
+    while len(cell.paragraphs) > 1:
+        p = cell.paragraphs[-1]._p
+        p.getparent().remove(p)
+
+    # Первый параграф — линия
+    p1 = cell.paragraphs[0]
+    for r in list(p1.runs):
+        r._r.getparent().remove(r._r)
+    run1 = p1.add_run(line_text)
+    run1.font.size = Pt(line_size)
+    p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Второй параграф — подпись
+    p2 = cell.add_paragraph()
+    run2 = p2.add_run(caption_text)
+    run2.font.size = Pt(caption_size)
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+
+
+def insert_table_at_marker(doc, marker, table_builder):
+    """
+    Находит абзац с маркером, удаляет его и вставляет на его место
+    таблицу, построенную table_builder(doc).
+    """
+    p = find_paragraph_by_text(doc, marker)
+    if p is None:
+        print(f"  [warn] Маркер '{marker}' не найден", file=sys.stderr)
+        return False
+
+    parent = p._p.getparent()
+    index = list(parent).index(p._p)
+
+    # Удаляем абзац-маркер
+    parent.remove(p._p)
+
+    # Создаём таблицу (add_table добавит её в конец <w:body>)
+    table = table_builder(doc)
+
+    # Перемещаем таблицу из конца на место маркера
+    parent.remove(table._tbl)
+    parent.insert(index, table._tbl)
+
+    # Пустой абзац после таблицы (требование Word)
+    parent.insert(index + 1, OxmlElement('w:p'))
+
+    print(f"  Таблица вставлена на место '{marker}'")
+    return True
+
+
 # ============================================================
 #  Стили
 # ============================================================
@@ -137,6 +396,7 @@ def paragraph_has_image(paragraph):
     p = paragraph._p
     return bool(p.findall('.//' + qn('w:drawing'))) or \
            bool(p.findall('.//' + qn('w:pict')))
+
 
 # ============================================================
 #  numbering.xml: маркеры + отступы + таб
@@ -180,11 +440,9 @@ def fix_lists_in_numbering(docx_path,
                 replaced_count += 1
 
         # ── 2. Отступы + таб-стоп ──
-        # снять старые ind / tabs
         block = re.sub(r'<w:ind[^/]*/>', '', block)
         block = re.sub(r'<w:tabs>.*?</w:tabs>', '', block, flags=re.DOTALL)
 
-        # порядок в pPr: ... tabs, ..., ind ...  (tabs идут ДО ind)
         new_inner = (
             f'<w:tabs><w:tab w:val="left" w:pos="{tab_twips}"/></w:tabs>'
             f'<w:ind w:left="{left_twips}" w:firstLine="{firstline_twips}"/>'
@@ -261,7 +519,8 @@ def main():
     ]
     missing_styles = [s for s in required_styles if s not in available_styles]
     if missing_styles:
-        print(f"Error: Missing styles in document: {missing_styles}", file=sys.stderr)
+        print(f"Error: Missing styles in document: {missing_styles}",
+              file=sys.stderr)
         print(f"Available styles: {sorted(available_styles)}", file=sys.stderr)
         sys.exit(2)
 
@@ -297,8 +556,8 @@ def main():
                 set_table_grid(table, widths)
                 print(f"  {type_name} ({n_cols} cols): widths = {widths}%")
             else:
-                print(f"  [warn] Нет ширин для {type_name} с {n_cols} столбцами — пропуск",
-                      file=sys.stderr)
+                print(f"  [warn] Нет ширин для {type_name} "
+                      f"с {n_cols} столбцами — пропуск", file=sys.stderr)
                 set_table_width_percent(table, 100)
         else:
             set_table_width_percent(table, 100)
@@ -315,10 +574,17 @@ def main():
                     if replace_style(p, current_target_style):
                         replaced += 1
 
+    # 3. Вставка таблицы подписей на место маркера
+    insert_table_at_marker(
+        doc,
+        SIGNATURE_TABLE_MARKER,
+        build_signature_table,
+    )
+
     print(f"Replaced paragraphs: {replaced}")
     doc.save(docx_path)
 
-    # 3. numbering.xml: маркеры + отступы + таб
+    # 4. numbering.xml: маркеры + отступы + таб
     fix_lists_in_numbering(docx_path)
 
     print("Saved:", docx_path)
