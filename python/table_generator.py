@@ -185,7 +185,7 @@ def generate_table_ascii(file_abs, sheet_name='Лист1'):
     # если в первых двух строках есть объединения — заголовок двухуровневый,
     # иначе — одноуровневый.
     header_has_merge = any(
-        min_r <= 2 and max_r >= 1 and (min_r != max_r or min_c != max_c)
+        min_r <= 2 and max_r <= 2 and min_c != max_c
         for (min_r, min_c, max_r, max_c) in unique_ranges
     )
     header_end_row = 2 if header_has_merge else 1

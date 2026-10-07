@@ -47,12 +47,24 @@ TABLE_TYPE_KEYWORDS = {
 }
 
 # --- КАРТА ШИРИН ---
+# Ключ: (type_name, n_cols)                — базовый вариант
+#       (type_name, n_cols, subtype)       — уточнённый вариант (приоритетный)
 TABLE_WIDTHS_PCT = {
+    # ── двухколоночные "параметр" ──
     ("NewTable2", 2):  [30, 70],
+
+    # ── NewTable без подтипа (старые записи) ──
     ("NewTable", 6):  [16, 32, 16, 12, 12, 12],
     ("NewTable", 7):  [16, 32, 16, 9, 9, 9, 9],
-    ("NewTable", 8):  [16, 33, 16, 7, 7, 7, 7, 7],
     ("NewTable", 10): [15, 23, 15, 8, 6, 6, 6, 7, 7, 7],
+
+    # ── NewTable, 8 столбцов — два подтипа ──
+    # fallback (если подтип не определён)
+    ("NewTable", 8):           [16, 33, 16, 7, 7, 7, 7, 7],
+    # подтип "Iторм" — таблица характеристики ДТЗт
+    ("NewTable", 8, "Iторм"):  [16, 26, 13, 9, 9, 9, 9, 9],
+
+    # ── PerechenTable ──
     ("PerechenTable", 7): [5, 30, 10, 10, 10, 11, 24],
 }
 
@@ -117,15 +129,39 @@ def set_table_grid(table, widths_pct):
             tcW.set(qn('w:type'), 'pct')
 
 
+def detect_table_subtype(table, type_name, n_cols):
+    """
+    Возвращает подтип таблицы или None.
+    Сейчас поддержан только один случай: NewTable, 8 столбцов,
+    в шапке которой есть 'Iторм'.
+    """
+    if type_name == "NewTable" and n_cols == 8:
+        if not table.rows:
+            return None
+        header_cells = [c.text.strip().lower() for c in table.rows[0].cells]
+        header_joined = " ".join(header_cells)
+        if "iторм" in header_joined:
+            return "Iторм"
+    return None
+
+
 def detect_table_type(table):
+    """
+    Возвращает (type_name, n_cols, subtype).
+    subtype = None, если подтип не определён.
+    """
     if not table.rows:
-        return None, 0
+        return None, 0, None
+
     n_cols = len(table.columns)
     header_text = table.rows[0].cells[0].text.strip().lower()
+
     for keyword, type_name in TABLE_TYPE_KEYWORDS.items():
         if keyword in header_text:
-            return type_name, n_cols
-    return None, n_cols
+            subtype = detect_table_subtype(table, type_name, n_cols)
+            return type_name, n_cols, subtype
+
+    return None, n_cols, None
 
 
 def set_cell_text(cell, text, bold=False, align="left", size=None):
@@ -151,13 +187,12 @@ def set_bottom_border(cell):
     if borders is None:
         borders = OxmlElement('w:tcBorders')
         tcPr.append(borders)
-    # Удаляем старый bottom, если есть
     old_bottom = borders.find(qn('w:bottom'))
     if old_bottom is not None:
         borders.remove(old_bottom)
     bottom = OxmlElement('w:bottom')
     bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), '6')       # толщина в 1/8 pt
+    bottom.set(qn('w:sz'), '6')
     bottom.set(qn('w:color'), '000000')
     borders.append(bottom)
 
@@ -169,10 +204,10 @@ def find_paragraph_by_text(doc, text):
             return p
     return None
 
+
 def clear_table_borders(table):
     """Убирает все границы у таблицы целиком."""
     tblPr = table._tbl.tblPr
-    # Удаляем старый tblBorders, если есть
     old = tblPr.find(qn('w:tblBorders'))
     if old is not None:
         tblPr.remove(old)
@@ -186,6 +221,7 @@ def clear_table_borders(table):
         el.set(qn('w:color'), 'auto')
         borders.append(el)
     tblPr.append(borders)
+
 
 def clear_cell_borders(cell):
     """Снимает все границы у одной ячейки."""
@@ -214,10 +250,8 @@ def clear_all_cell_borders(table):
 def apply_normal_style_to_cells(table, doc):
     """
     Применяет стиль "Обычный1" ко всем абзацам во всех ячейках таблицы.
-    "Обычный" — это встроенный стиль Word (в python-docx называется "Normal").
     """
     normal_style = None
-    # Пробуем найти "Обычный" или "Normal"
     for name in ("Обычный1", "Normal1"):
         try:
             normal_style = doc.styles[name]
@@ -238,7 +272,6 @@ def apply_normal_style_to_cells(table, doc):
                 except Exception as e:
                     print(f"  [warn] Не удалось применить стиль: {e}",
                           file=sys.stderr)
-
 
 
 def build_signature_table(doc):
@@ -264,8 +297,8 @@ def build_signature_table(doc):
             cell.width = Cm(SIGNATURE_TABLE_WIDTHS_CM[idx])
 
     # ── merge в первом столбце ──
-    table.cell(1, 0).merge(table.cell(2, 0))   # "Проверку произвели:"
-    table.cell(3, 0).merge(table.cell(4, 0))   # "Протокол проверил:"
+    table.cell(1, 0).merge(table.cell(2, 0))
+    table.cell(3, 0).merge(table.cell(4, 0))
 
     # "М.П." и текст-предупреждение — в последней строке
     table.cell(6, 1).merge(table.cell(6, 3))
@@ -316,8 +349,6 @@ def build_signature_table(doc):
     return table
 
 
-
-
 def set_cell_text_two_lines(cell, line_text, caption_text,
                             line_size=11, caption_size=9):
     """
@@ -326,12 +357,10 @@ def set_cell_text_two_lines(cell, line_text, caption_text,
       2) подпись под ней
     Оба по центру.
     """
-    # Оставляем ровно один параграф в ячейке
     while len(cell.paragraphs) > 1:
         p = cell.paragraphs[-1]._p
         p.getparent().remove(p)
 
-    # Первый параграф — линия
     p1 = cell.paragraphs[0]
     for r in list(p1.runs):
         r._r.getparent().remove(r._r)
@@ -339,12 +368,10 @@ def set_cell_text_two_lines(cell, line_text, caption_text,
     run1.font.size = Pt(line_size)
     p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Второй параграф — подпись
     p2 = cell.add_paragraph()
     run2 = p2.add_run(caption_text)
     run2.font.size = Pt(caption_size)
     p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
 
 
 def insert_table_at_marker(doc, marker, table_builder):
@@ -360,17 +387,13 @@ def insert_table_at_marker(doc, marker, table_builder):
     parent = p._p.getparent()
     index = list(parent).index(p._p)
 
-    # Удаляем абзац-маркер
     parent.remove(p._p)
 
-    # Создаём таблицу (add_table добавит её в конец <w:body>)
     table = table_builder(doc)
 
-    # Перемещаем таблицу из конца на место маркера
     parent.remove(table._tbl)
     parent.insert(index, table._tbl)
 
-    # Пустой абзац после таблицы (требование Word)
     parent.insert(index + 1, OxmlElement('w:p'))
 
     print(f"  Таблица вставлена на место '{marker}'")
@@ -548,13 +571,19 @@ def main():
 
     # 2. Таблицы
     for table in doc.tables:
-        type_name, n_cols = detect_table_type(table)
+        type_name, n_cols, subtype = detect_table_type(table)
 
         if type_name is not None:
-            widths = TABLE_WIDTHS_PCT.get((type_name, n_cols))
+            widths = None
+            if subtype is not None:
+                widths = TABLE_WIDTHS_PCT.get((type_name, n_cols, subtype))
+            if widths is None:
+                widths = TABLE_WIDTHS_PCT.get((type_name, n_cols))
+
             if widths is not None:
                 set_table_grid(table, widths)
-                print(f"  {type_name} ({n_cols} cols): widths = {widths}%")
+                sub = f", subtype={subtype}" if subtype else ""
+                print(f"  {type_name} ({n_cols} cols{sub}): widths = {widths}%")
             else:
                 print(f"  [warn] Нет ширин для {type_name} "
                       f"с {n_cols} столбцами — пропуск", file=sys.stderr)
