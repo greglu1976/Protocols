@@ -46,6 +46,16 @@ TABLE_TYPE_KEYWORDS = {
     "№ п/п": "PerechenTable"
 }
 
+# --- КАРТА ПОДТИПОВ ТАБЛИЦ ---
+# Ключ — имя подтипа (как в TABLE_WIDTHS_PCT),
+# Значение — подстрока, которую ищем в шапке таблицы (в нижнем регистре).
+# Порядок важен: первый найденный подтип побеждает.
+SUBTYPE_KEYWORDS = {
+    "I2гарм": "i2гарм",   # сначала проверяем более специфичный
+    "Iторм":  "iторм",
+    # сюда добавляйте новые подтипы — без правок в detect_table_subtype
+}
+
 # --- КАРТА ШИРИН ---
 # Ключ: (type_name, n_cols)                — базовый вариант
 #       (type_name, n_cols, subtype)       — уточнённый вариант (приоритетный)
@@ -63,6 +73,7 @@ TABLE_WIDTHS_PCT = {
     ("NewTable", 8):           [16, 33, 16, 7, 7, 7, 7, 7],
     # подтип "Iторм" — таблица характеристики ДТЗт
     ("NewTable", 8, "Iторм"):  [16, 26, 13, 9, 9, 9, 9, 9],
+    ("NewTable", 8, "I2гарм"):  [15, 23, 12, 10, 10, 10, 10, 10],
 
     # ── PerechenTable ──
     ("PerechenTable", 7): [5, 30, 10, 10, 10, 11, 24],
@@ -129,19 +140,22 @@ def set_table_grid(table, widths_pct):
             tcW.set(qn('w:type'), 'pct')
 
 
-def detect_table_subtype(table, type_name, n_cols):
+def detect_table_subtype(table):
     """
-    Возвращает подтип таблицы или None.
-    Сейчас поддержан только один случай: NewTable, 8 столбцов,
-    в шапке которой есть 'Iторм'.
+    Универсальный определитель подтипа.
+    Перебирает SUBTYPE_KEYWORDS в порядке объявления
+    и возвращает первый подтип, чья подстрока встречается в шапке.
+    Если ничего не найдено — возвращает None.
     """
-    if type_name == "NewTable" and n_cols == 8:
-        if not table.rows:
-            return None
-        header_cells = [c.text.strip().lower() for c in table.rows[0].cells]
-        header_joined = " ".join(header_cells)
-        if "iторм" in header_joined:
-            return "Iторм"
+    if not table.rows:
+        return None
+
+    header_cells = [c.text.strip().lower() for c in table.rows[0].cells]
+    header_joined = " ".join(header_cells)
+
+    for subtype_name, keyword in SUBTYPE_KEYWORDS.items():
+        if keyword in header_joined:
+            return subtype_name
     return None
 
 
@@ -158,7 +172,7 @@ def detect_table_type(table):
 
     for keyword, type_name in TABLE_TYPE_KEYWORDS.items():
         if keyword in header_text:
-            subtype = detect_table_subtype(table, type_name, n_cols)
+            subtype = detect_table_subtype(table)
             return type_name, n_cols, subtype
 
     return None, n_cols, None
