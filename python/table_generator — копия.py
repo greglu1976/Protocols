@@ -15,13 +15,7 @@ def _generate_crossref_id(text):
 
 
 def _get_metadata(wb):
-    """
-    Читает с листа 'Info':
-      - 'Название таблицы' → long_title
-      - 'Тэг' | 'tag' | 'id' | 'идентификатор' → table_tag
-      - 'Метка' | 'label' → table_label
-    Возвращает (long_title, table_tag, table_label).
-    """
+    """Читает название и тэг таблицы с листа 'Info'."""
     info_sheet = None
     for ws in wb.worksheets:
         if ws.title.lower() == 'info':
@@ -29,11 +23,10 @@ def _get_metadata(wb):
             break
 
     if not info_sheet:
-        return None, None, None
+        return None, None
 
     table_name = None
     table_tag = None
-    table_label = None
 
     for row in info_sheet.iter_rows(min_row=1, max_col=2, values_only=True):
         key, value = row[0], row[1]
@@ -45,36 +38,18 @@ def _get_metadata(wb):
             table_name = str(value).strip()
         elif key_str in ('тэг', 'tag', 'id', 'идентификатор') and value:
             table_tag = str(value).strip()
-        elif key_str in ('метка', 'label') and value:
-            table_label = str(value).strip()
 
-    return table_name, table_tag, table_label
+    return table_name, table_tag
 
 
-def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
+def generate_table_ascii(file_abs, sheet_name='Лист1'):
     """
     Чистая функция генерации.
-    Принимает абсолютный путь к Excel, имя листа и опциональный tag.
+    Принимает абсолютный путь к Excel и имя листа.
     Возвращает строку с ASCII-таблицей и подписью.
-
-    Если tag == 'custom':
-        Вывод:
-            ::: {#tbl:<id> label="<метка>"}
-            <grid>
-            
-            : <название>
-            :::
-        Метка берётся из листа 'Info' (ключ 'Метка'/'label').
-        Если метки нет — параметр label не добавляется.
-
-    Иначе (tag пустой или другой):
-        Вывод:
-            <grid>
-            
-            : <название> {#tbl:<id>}
     """
     wb = openpyxl.load_workbook(file_abs, data_only=True)
-    long_title, explicit_tag, table_label = _get_metadata(wb)
+    long_title, explicit_tag = _get_metadata(wb)
 
     try:
         ws = wb[sheet_name] if isinstance(sheet_name, str) else wb.worksheets[sheet_name]
@@ -105,6 +80,7 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
             is_master, min_r, min_c, max_r, max_c = get_merged_info(r, c)
             val = ""
             if is_master:
+                #val = str(ws.cell(row=r, column=c).value or '').replace('\n', ' ').strip()
                 cell_value = ws.cell(row=r, column=c).value
                 if cell_value is None:
                     val = ""
@@ -205,7 +181,9 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
                 for ci, ch in enumerate(padded_val):
                     canvas[y1 + 1][x1 + 1 + ci] = ch
 
-    # Определяем, сколько строк занимает заголовок
+    # Определяем, сколько строк занимает заголовок:
+    # если в первых двух строках есть объединения — заголовок двухуровневый,
+    # иначе — одноуровневый.
     header_has_merge = any(
         min_r <= 2 and max_r <= 2 and min_c != max_c
         for (min_r, min_c, max_r, max_c) in unique_ranges
@@ -222,25 +200,7 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
     # Формирование подписи
     display_name = long_title or ws.title
     crossref_id = explicit_tag if explicit_tag else _generate_crossref_id(display_name)
-    grid_output = '\n'.join(''.join(row).rstrip() for row in canvas)
-
-    # ── Режим custom ──
-    if tag == 'custom':
-        # Собираем атрибуты для div
-        attrs = [f'#{crossref_id}']
-        if table_label:
-            attrs.append(f'label="{table_label}"')
-        attr_str = ' '.join(attrs)
-
-        return (
-            f"::: {{#tbl:{crossref_id}"
-            + (f' label="{table_label}"' if table_label else '')
-            + "}\n"
-            f"{grid_output}\n\n"
-            f": {display_name}\n"
-            f":::\n"
-        )
-
-    # ── Обычный режим ──
     caption_line = f": {display_name} {{#tbl:{crossref_id}}}"
+
+    grid_output = '\n'.join(''.join(row).rstrip() for row in canvas)
     return f"{grid_output}\n\n{caption_line}"
