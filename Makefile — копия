@@ -41,14 +41,12 @@ PANDOC_OPTS = --standalone $(FILTERS) \
               --reference-doc=$(REFERENCE) \
               --resource-path=img;$(CABINET);.
 
+
 POSTPROCESS        = python/postprocess.py
 GEN_TECH_TABLES    = python/gen_tech_tables.py
 TABLE_PREPROCESSOR = python/preprocess.py
 FILL_TITLE         = python/fill_title.py
 GENERAL_UPDATER    = python/general_updater.py
-
-# Лист ревизий, приклеиваемый в конец каждого протокола
-REVSHEET ?= revsheet.docx
 
 # --- Цели ---
 .PHONY: all one _one show show-one _show-one list clean clean-temp
@@ -69,7 +67,7 @@ all:
 	@$(foreach c,$(CABINETS),$(MAKE) --no-print-directory ONE=1 CABINET=$(c) CABINET_ID=$(patsubst SET_%,%,$(c)) \
 	    POSTPROCESS=$(POSTPROCESS) GEN_TECH_TABLES=$(GEN_TECH_TABLES) \
 	    TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) FILL_TITLE=$(FILL_TITLE) \
-	    GENERAL_UPDATER=$(GENERAL_UPDATER) REVSHEET=$(REVSHEET) \
+	    GENERAL_UPDATER=$(GENERAL_UPDATER) \
 	    _one && ) \
 	    $(MAKE) --no-print-directory clean-temp && \
 	    echo All done.
@@ -78,7 +76,7 @@ one:
 	@$(MAKE) --no-print-directory ONE=1 CABINET=$(CABINET) CABINET_ID=$(CABINET_ID) \
 	    POSTPROCESS=$(POSTPROCESS) GEN_TECH_TABLES=$(GEN_TECH_TABLES) \
 	    TABLE_PREPROCESSOR=$(TABLE_PREPROCESSOR) FILL_TITLE=$(FILL_TITLE) \
-	    GENERAL_UPDATER=$(GENERAL_UPDATER) REVSHEET=$(REVSHEET) \
+	    GENERAL_UPDATER=$(GENERAL_UPDATER) \
 	    _one && \
 	    $(MAKE) --no-print-directory clean-temp
 
@@ -88,7 +86,7 @@ ifeq ($(TEST),1)
 	@echo "[TEST MODE] Skipping post-processing for $(CABINET)..."
 else
 	@echo "Post-processing $(FINAL_TARGET) for $(CABINET)..."
-	set TEST=$(TEST)&& set REVSHEET=$(REVSHEET)&& set CABINET_DIR=$(CABINET)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
+	set TEST=$(TEST)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
 endif
 
 list:

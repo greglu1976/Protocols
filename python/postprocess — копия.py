@@ -5,9 +5,7 @@
 Плюс правит word/numbering.xml: маркеры списков → тире,
 абзац по левому краю, первая строка — с отступом 1 см,
 таб-стоп — на 1.5 см.
-Также вставляет таблицу подписей на место маркера %%SIGNATURE_TABLE%%.
-И приклеивает в конец документа лист ревизий (revsheet.docx),
-путь к которому задаётся через переменную окружения REVSHEET.
+Также вставляет таблицу подписей на место маркера @@SIGNATURE_TABLE@@.
 """
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -22,18 +20,8 @@ import shutil
 import zipfile
 from docx import Document
 
-# --- слияние docx (необязательная зависимость) ---
-try:
-    from docxcompose.composer import Composer
-    _HAS_DOCXCOMPOSE = True
-except ImportError:
-    _HAS_DOCXCOMPOSE = False
-
 # --- МАРКЕР ДЛЯ ВСТАВКИ ТАБЛИЦЫ ПОДПИСЕЙ ---
 SIGNATURE_TABLE_MARKER = "%%SIGNATURE_TABLE%%"
-
-# --- ИМЯ ПЕРЕМЕННОЙ ОКРУЖЕНИЯ С ПУТЁМ К ЛИСТУ РЕВИЗИЙ ---
-REVSHEET_ENV = "REVSHEET"
 
 # --- НАСТРОЙКИ СТИЛЕЙ ---
 TARGET_STYLE_NAME = "Основной текст с отступом 31"
@@ -85,7 +73,7 @@ TABLE_WIDTHS_PCT = {
     ("NewTable", 8):           [16, 33, 16, 7, 7, 7, 7, 7],
     # подтип "Iторм" — таблица характеристики ДТЗт
     ("NewTable", 8, "Iторм"):  [16, 26, 13, 9, 9, 9, 9, 9],
-    ("NewTable", 8, "I2гарм"): [15, 23, 12, 10, 10, 10, 10, 10],
+    ("NewTable", 8, "I2гарм"):  [15, 23, 12, 10, 10, 10, 10, 10],
 
     # ── PerechenTable ──
     ("PerechenTable", 7): [5, 30, 10, 10, 10, 11, 24],
@@ -539,72 +527,6 @@ def fix_lists_in_numbering(docx_path,
 
 
 # ============================================================
-#  Приклеивание revsheet.docx
-# ============================================================
-
-def _append_docx_raw(main_path, extra_path):
-    """
-    Fallback без docxcompose: копируем <w:body> из extra в конец <w:body> main.
-    Картинки/relationships из extra НЕ переносятся — только текст и таблицы.
-    sectPr из extra отбрасывается, sectPr основного документа сохраняется
-    в самом конце.
-    """
-    main = Document(main_path)
-    extra = Document(extra_path)
-
-    main_body = main.element.body
-    extra_body = extra.element.body
-
-    # последний <w:sectPr> основного документа оставляем в конце
-    main_sect = main_body.find(qn('w:sectPr'))
-
-    for child in list(extra_body):
-        # sectPr из extra не тащим — он бы переопределил параметры секции
-        if child.tag == qn('w:sectPr'):
-            continue
-        main_body.append(child)
-
-    if main_sect is not None:
-        main_body.remove(main_sect)
-        main_body.append(main_sect)
-
-    main.save(main_path)
-
-
-def append_docx(main_path, extra_path):
-    """
-    Приклеивает extra_path в конец main_path.
-    Возвращает True, если слияние выполнено.
-    """
-    if not os.path.isfile(extra_path):
-        print(f"  [warn] revsheet не найден: {extra_path} — пропуск",
-              file=sys.stderr)
-        return False
-
-    if _HAS_DOCXCOMPOSE:
-        # правильный путь: переносит стили, нумерацию, картинки, sectPr
-        base = Document(main_path)
-        composer = Composer(base)
-        composer.append(Document(extra_path))
-        composer.save(main_path)
-        print(f"  revsheet appended via docxcompose: {extra_path}")
-        return True
-
-    # ── fallback без docxcompose ──
-    print("  [warn] docxcompose не установлен — используется fallback "
-          "(стили/нумерация/картинки revsheet могут не подхватиться)",
-          file=sys.stderr)
-    try:
-        _append_docx_raw(main_path, extra_path)
-        print(f"  revsheet appended (raw): {extra_path}")
-        return True
-    except Exception as e:
-        print(f"  [error] не удалось приклеить revsheet: {e}",
-              file=sys.stderr)
-        return False
-
-
-# ============================================================
 #  main
 # ============================================================
 
@@ -707,22 +629,6 @@ def main():
 
     # 4. numbering.xml: маркеры + отступы + таб
     fix_lists_in_numbering(docx_path)
-
-    # 5. Приклеить лист ревизий (если задан)
-    revsheet = os.environ.get(REVSHEET_ENV)
-    if revsheet:
-        # если путь относительный — резолвим относительно папки кабинета,
-        # иначе относительно текущей рабочей директории
-        if not os.path.isabs(revsheet) and os.sep not in revsheet \
-                and "/" not in revsheet:
-            cabinet_dir = os.environ.get("CABINET_DIR")
-            if cabinet_dir:
-                revsheet = os.path.join(cabinet_dir, revsheet)
-        append_docx(docx_path, revsheet)
-    else:
-        print(f"  [info] {REVSHEET_ENV} не задан — revsheet не добавляется")
-
-
 
     print("Saved:", docx_path)
     print("Done.")
