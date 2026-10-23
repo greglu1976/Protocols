@@ -1,282 +1,288 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-general_updater.py <vars.json> <templates/general.md> <CABINET/general.md> <CABINET>
-
-1. Читает vars.json.
-2. Генерирует .xlsx для каждого устройства (ЮНИТ, ИЧМ, ПРМ/ПРД).
-3. Генерирует analog.xlsx — шапка И метаданные (название, тэг) берутся
-   из шаблона templates/analog.xlsx. Количество строк данных считается
-   по кодам code_order / code_order2 / code_order3
-   (см. calculate_analog_rows).
-4. Вставляет блоки INSERT_TABLE в general.md после заголовка
-   "# Основные технические данные устройств".
-
-Шаблон templates/analog.xlsx содержит:
-  - лист «Лист1» — только шапку (2 строки, с нужными объединениями,
-    шрифтами и ширинами);
-  - лист «Info» — название таблицы и тэг.
-
-Строки данных добавляются программно: n_rows пустых строк, первая колонка
-заполняется пробелом, иначе openpyxl не сохранит пустые строки.
-"""
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 import openpyxl
 
-
-# ─── Путь к шаблону analog.xlsx ───────────────────────────────
-
-ANALOG_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "analog.xlsx"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from table_generator import generate_table_ascii
 
 
-# ─── Генерация xlsx ───────────────────────────────────────────
-
-def write_table_xlsx(path, info_name, info_tag, rows):
-    base, suffix = info_name
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Лист1"
-
-    ws["A1"] = "Параметр"
-    ws["B1"] = "Значение"
-
-    r = 2
-    for row in rows:
-        for c, v in enumerate(row, start=1):
-            cell = ws.cell(row=r, column=c, value=v)
-            if isinstance(v, str) and v.startswith("="):
-                cell.data_type = "s"
-        r += 1
-
-    ws_info = wb.create_sheet("Info")
-    ws_info.append(["Название таблицы", base + suffix])
-    ws_info.append(["Тэг", info_tag])
-
-    wb.save(path)
-
-
-def make_unit_xlsx(cabinet_dir, idx, code_order, code_unit):
-    path = cabinet_dir / f"unit{idx}.xlsx"
-    write_table_xlsx(
-        path,
-        info_name=["Технические данные ЮНИТ", f" (A{idx})"],
-        info_tag=f"unit{idx}",
-        rows=[
-            ["Код заказа ЮНИТ", code_order],
-            ["Заводской номер", ""],
-            ["Завод-изготовитель", "ООО Юнител Инжиниринг"],
-            ["Год выпуска", ""],
-            ["Uпит, В", ""],
-        ],
-    )
-    return path.name
-
-
-def make_hmi_xlsx(cabinet_dir, unit_idx, code_hmi):
-    path = cabinet_dir / f"unit{unit_idx}.1.xlsx"
-    write_table_xlsx(
-        path,
-        info_name=["Технические данные ИЧМ", f" (A{unit_idx}.1)"],
-        info_tag=f"unit{unit_idx}.1",
-        rows=[
-            ["Код заказа ИЧМ", code_hmi],
-            ["Заводской номер", ""],
-            ["Завод-изготовитель", "ООО Юнител Инжиниринг"],
-            ["Год выпуска", ""],
-            ["Uпит, В", ""],
-        ],
-    )
-    return path.name
-
-
-def make_prv_xlsx(cabinet_dir, code_prmprd):
-    path = cabinet_dir / "prv.xlsx"
-    write_table_xlsx(
-        path,
-        info_name=["Технические данные ВЧ ПРМ/ПРД", ""],
-        info_tag="prv",
-        rows=[
-            ["Код заказа ВЧ ПРМ/ПРД", code_prmprd],
-            ["Заводской номер", ""],
-            ["Завод-изготовитель", "ООО Юнител Инжиниринг"],
-            ["Год выпуска", ""],
-            ["Uпит, В", ""],
-        ],
-    )
-    return path.name
-
-
-# ─── Аналоговые каналы: подсчёт строк и xlsx ──────────────────
-
-# Кириллические буквы, визуально совпадающие с латинскими.
-_CYR_TO_LAT = {
-    '\u0410': 'A',  # А
-    '\u0412': 'B',  # В
-    '\u0421': 'C',  # С
-    '\u0415': 'E',  # Е
-    '\u041d': 'H',  # Н
-    '\u041a': 'K',  # К
-    '\u041c': 'M',  # М
-    '\u041e': 'O',  # О
-    '\u0420': 'P',  # Р
-    '\u0422': 'T',  # Т
-    '\u0425': 'X',  # Х
+REPEAT_BY_FILE = {
+    "unit.xlsx": ("code_order", "code_order2", "code_order3"),
+    "hmi.xlsx": ("code_hmi", "code_hmi2", "code_hmi3"),
+    "analog.xlsx": ("code_order", "code_order2", "code_order3"),
 }
 
+GATE_BY_FILE = {
+    "prv.xlsx": "code_prmprd",
+}
+
+DATA_SHEET = "Лист1"
+PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+DISCRET_JSON_DIR = Path(__file__).resolve().parent.parent / "discret"
+
+DISCRET_HEADERS = (
+    "Наименование задействованного входа",
+    "U ср / U в, В",
+    "Наименование задействованного входа",
+    "U ср / U в, В",
+)
+
+
+def _nonempty(v) -> bool:
+    if v is None: return False
+    if isinstance(v, str) and not v.strip(): return False
+    return True
+
+
+def _substitute_in_xlsx(template_path: Path, ctx: dict):
+    wb = openpyxl.load_workbook(template_path)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if not isinstance(v, str): continue
+                def repl(m):
+                    val = ctx.get(m.group(1))
+                    return "" if val is None else str(val)
+                new = PLACEHOLDER_RE.sub(repl, v)
+                if new != v: cell.value = new
+    return wb
+
+
+def _pick_data_sheet(wb):
+    if DATA_SHEET in wb.sheetnames: return wb[DATA_SHEET]
+    for s in wb.worksheets:
+        if s.title.lower() != "info": return s
+    return wb.worksheets[0]
+
+
+def _save_and_render(wb, ws) -> str:
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(tmp_fd)
+    try:
+        wb.save(tmp_path)
+        return generate_table_ascii(tmp_path, sheet_name=ws.title)
+    finally:
+        try: os.remove(tmp_path)
+        except OSError: pass
+
+
+# --- Аналоговые каналы ---
+_CYR_TO_LAT = {
+    "\u0410": "A", "\u0412": "B", "\u0421": "C", "\u0415": "E",
+    "\u041d": "H", "\u041a": "K", "\u041c": "M", "\u041e": "O",
+    "\u0420": "P", "\u0422": "T", "\u0425": "X",
+}
 
 def _char_value(ch: str) -> int:
-    """Значение символа: цифра — как есть, латинская A=10 … Z=35.
-    Кириллические буквы-двойники дают то же значение, что и латинские.
-    Прочее — 0."""
-    if ch.isdigit():
-        return int(ch)
+    if ch.isdigit(): return int(ch)
     up = ch.upper()
-    if up in _CYR_TO_LAT:
-        up = _CYR_TO_LAT[up]
-    if 'A' <= up <= 'Z':
-        return 10 + (ord(up) - ord('A'))
+    up = _CYR_TO_LAT.get(up, up)
+    if "A" <= up <= "Z": return 10 + (ord(up) - ord("A"))
     return 0
 
-
-def calculate_analog_rows(code_orders) -> int:
-    """
-    Считает суммарное количество строк для таблицы аналоговых каналов.
-    Для каждого кода:
-      - разбиваем по дефису (обычный / en / em / прочие);
-      - находим фрагменты, начинающиеся с 'M1' / 'М1' (любой регистр);
-      - берём часть после 'M1' до первой точки;
-      - суммируем значения символов (A=10, B=11, C=12, цифры как есть).
-    """
+def calculate_analog_rows(code: str) -> int:
+    if not code: return 0
     total = 0
-    for code in code_orders:
-        if not code:
-            continue
-        for part in re.split(r'[-–—\u2010\u2011\u2012\u2013\u2014\u2015]', code):
-            m = re.match(r'^[MmМм]1([^.]*)', part)
-            if not m:
-                continue
-            tail = m.group(1)
-            total += sum(_char_value(ch) for ch in tail)
+    for part in re.split(r"[-\u2010\u2011\u2012\u2013\u2014\u2015]", code):
+        m = re.match(r"^[Mm\u041c\u043c]1([^.]*)", part)
+        if not m: continue
+        total += sum(_char_value(ch) for ch in m.group(1))
     return total
 
 
-def make_analog_xlsx(cabinet_dir, n_rows, template_xlsx=None):
-    """
-    Копирует шаблон templates/analog.xlsx целиком (шапка + лист Info)
-    и добавляет n_rows пустых строк данных на активный лист.
-
-    Ничего в шапке и в Info не пересобирается — всё берётся из шаблона.
-    Первая колонка каждой новой строки заполняется пробелом, иначе
-    openpyxl не сохранит пустую строку.
-    """
-    if template_xlsx is None:
-        template_xlsx = ANALOG_TEMPLATE
-
-    template_xlsx = Path(template_xlsx)
-    if not template_xlsx.is_file():
-        raise FileNotFoundError(
-            f"Шаблон analog.xlsx не найден: {template_xlsx}. "
-            f"Положите файл с шапкой и листом Info в templates/."
-        )
-
-    wb = openpyxl.load_workbook(template_xlsx)
-    ws = wb.active
-
-    # Первая строка после шапки. В шаблоне только шапка (2 строки),
-    # max_row вернёт 2 — значит данные начнутся с 3-й строки.
-    start_row = ws.max_row + 1
-    for r in range(start_row, start_row + n_rows):
-        ws.cell(row=r, column=1, value=" ")
-
-    path = cabinet_dir / "analog.xlsx"
-    wb.save(path)
-    return path.name
+# --- Дискретные входы (Grid Table с символом \) ---
+def _terminals_to_str(value) -> str:
+    if isinstance(value, (list, tuple)):
+        s = ", ".join(str(x) for x in value)
+    else:
+        s = "" if value is None else str(value)
+    return s.replace("\u0425", "X").replace("\u0445", "x")
 
 
-# ─── Блоки INSERT_TABLE ───────────────────────────────────────
+def _make_grid_table(header, rows):
+    """Вспомогательная функция для рисования сетчатой таблицы."""
+    widths = [len(h) for h in header]
+    for row in rows:
+        for i, cell in enumerate(row):
+            for line in cell.split('\n'):
+                widths[i] = max(widths[i], len(line))
+    
+    def border(char='-'):
+        return '+' + '+'.join(char * (w + 2) for w in widths) + '+'
+    
+    def format_row(cells):
+        max_lines = max(len(c.split('\n')) for c in cells)
+        out_lines = []
+        for ln in range(max_lines):
+            parts = []
+            for i, cell in enumerate(cells):
+                lines = cell.split('\n')
+                val = lines[ln] if ln < len(lines) else ""
+                parts.append(f" {val.ljust(widths[i])} ")
+            out_lines.append('|' + '|'.join(parts) + '|')
+        return '\n'.join(out_lines)
 
-def make_insert_block(xlsx_name, sheet="Лист1"):
-    return (
-        f"<!-- INSERT_TABLE:file={xlsx_name} -->\n"
-        f"<!-- END_INSERT_TABLE -->"
-    )
+    md = [border('-'), format_row(header), border('=')]
+    for row in rows:
+        md.append(format_row(row))
+        md.append(border('-'))
+    return '\n'.join(md)
 
 
-# ─── main ─────────────────────────────────────────────────────
+def render_discret_from_json(vars_data: dict) -> str:
+    cabinet_id = str(vars_data.get("id", ""))
+    json_path = None
 
+    if DISCRET_JSON_DIR.is_dir():
+        for p in DISCRET_JSON_DIR.glob("*.json"):
+            if cabinet_id in p.name:
+                json_path = p
+                break
+
+    if not json_path or not json_path.is_file():
+        print("[general_updater] WARNING: JSON для {} не найден".format(cabinet_id), file=sys.stderr)
+        return ""
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f).get("data", {})
+    except Exception as e:
+        print("[general_updater] ERROR reading {}: {}".format(json_path, e), file=sys.stderr)
+        return ""
+
+    tables = []
+    # Проходим по каждому устройству (A1, A2, A3)
+    for device_name, device_data in raw_data.items():
+        if not isinstance(device_data, dict) or not device_data:
+            continue
+            
+        items = list(device_data.items())
+        mid_idx = (len(items) + 1) // 2
+        col1_items = items[:mid_idx]
+        col2_items = items[mid_idx:]
+        
+        rows = []
+        for i in range(max(len(col1_items), len(col2_items))):
+            c1, c2 = "", ""
+            if i < len(col1_items):
+                k1, v1 = col1_items[i]
+                # \ (обратный слэш) в конце строки — команда Pandoc сделать LineBreak
+                c1 = f"{k1} \\\n{_terminals_to_str(v1)}"
+            if i < len(col2_items):
+                k2, v2 = col2_items[i]
+                c2 = f"{k2} \\\n{_terminals_to_str(v2)}"
+            rows.append([c1, "", c2, ""])
+
+        table_str = _make_grid_table(DISCRET_HEADERS, rows)
+        
+        # Делаем уникальный ID для каждой таблицы (например, tbl:discret_A1)
+        crossref_id = f"discret_{device_name}"
+        caption = f"\n\n: Пороги срабатывания дискретных входов ({device_name}) {{#tbl:{crossref_id}}}\n\n"
+        
+        tables.append(f"\n\n{table_str}{caption}\n\n")
+
+    return "\n".join(tables)
+
+
+# --- Размножение unit/hmi/analog ---
+def _expand_repeat(fname: str, vars_data: dict, templates_dir: Path) -> str:
+    keys = REPEAT_BY_FILE[fname]
+    tables = []
+    for idx, key in enumerate(keys, start=1):
+        code = vars_data.get(key)
+        if not _nonempty(code): continue
+
+        ctx = dict(vars_data)
+        ctx["code_order"] = code
+        ctx["code_hmi"] = vars_data.get("code_hmi{}".format(idx) if idx > 1 else "code_hmi")
+        ctx["label"] = "A{}".format(idx)
+        ctx["N"] = str(idx)
+
+        n_extra = 0
+        if fname == "analog.xlsx":
+            n_extra = calculate_analog_rows(code)
+
+        wb = _substitute_in_xlsx(templates_dir / fname, ctx)
+        ws = _pick_data_sheet(wb)
+
+        if n_extra:
+            start = ws.max_row + 1
+            for r in range(start, start + n_extra):
+                ws.cell(row=r, column=1, value=" ")
+
+        try:
+            md = _save_and_render(wb, ws)
+            tables.append(md)
+        except Exception as e:
+            print("[general_updater] ERROR rendering {} (N={}): {}".format(fname, idx, e), file=sys.stderr)
+
+    if not tables: return ""
+    return "\n\n".join(tables) + "\n"
+
+
+# --- Блоки INSERT_TABLE ---
+BLOCK_RE = re.compile(
+    r"<!--\s*INSERT_TABLE:file=(?P<file>[^\s,>]+)(?:[^>]*)?\s*-->"
+    r"(?P<body>.*?)"
+    r"<!--\s*END_INSERT_TABLE\s*-->",
+    re.DOTALL,
+)
+
+def process_general_md(template_text: str, vars_data: dict, templates_dir: Path) -> str:
+    def repl(m):
+        fname = m.group("file")
+        if fname in REPEAT_BY_FILE:
+            return _expand_repeat(fname, vars_data, templates_dir)
+        if fname == "discret.xlsx":
+            return render_discret_from_json(vars_data)
+            
+        gate = GATE_BY_FILE.get(fname)
+        if gate is not None and not _nonempty(vars_data.get(gate)):
+            return ""
+
+        xlsx_path = templates_dir / fname
+        if not xlsx_path.is_file(): return m.group(0)
+
+        wb = _substitute_in_xlsx(xlsx_path, dict(vars_data))
+        ws = _pick_data_sheet(wb)
+        try:
+            md = _save_and_render(wb, ws)
+        except Exception as e:
+            print("[general_updater] ERROR rendering {}: {}".format(fname, e), file=sys.stderr)
+            return m.group(0)
+        return md + "\n"
+
+    return BLOCK_RE.sub(repl, template_text)
+
+
+# --- main ---
 def main():
     if len(sys.argv) != 5:
-        print(
-            "Usage: general_updater.py <vars.json> <template.md> <out.md> <cabinet_dir>",
-            file=sys.stderr,
-        )
+        print("Usage: general_updater.py <vars.json> <template_general.md> <out_general.md> <templates_dir>", file=sys.stderr)
         return 2
 
-    vars_json   = Path(sys.argv[1])
+    vars_json = Path(sys.argv[1])
     template_md = Path(sys.argv[2])
-    out_md      = Path(sys.argv[3])
-    cabinet_dir = Path(sys.argv[4])
-
-    vars_data = json.loads(vars_json.read_text(encoding="utf-8"))
-
-    units_codes = [v for k in ("code_order", "code_order2", "code_order3")
-                   if (v := vars_data.get(k)) is not None]
-    hmis  = [v for k in ("code_hmi", "code_hmi2", "code_hmi3")
-             if (v := vars_data.get(k)) is not None]
-    prv   = vars_data.get("code_prmprd")
-
-    inserts = []
-
-    # ── ЮНИТ + ИЧМ ──
-    for i, code_order in enumerate(units_codes, start=1):
-        make_unit_xlsx(cabinet_dir, i, code_order, vars_data.get("code_unit", ""))
-        inserts.append(make_insert_block(f"unit{i}.xlsx"))
-
-        if i - 1 < len(hmis):
-            make_hmi_xlsx(cabinet_dir, i, hmis[i - 1])
-            inserts.append(make_insert_block(f"unit{i}.1.xlsx"))
-
-    # ── ВЧ ПРМ/ПРД ──
-    if prv:
-        make_prv_xlsx(cabinet_dir, prv)
-        inserts.append(make_insert_block("prv.xlsx"))
-
-    # ── Аналоговые каналы ──
-    n_analog_rows = calculate_analog_rows(units_codes)
-    make_analog_xlsx(cabinet_dir, n_analog_rows)
-    print(f"[general_updater] analog.xlsx: {n_analog_rows} row(s)")
-
-    # ── Вставка блоков INSERT_TABLE после маркера ──
-    content = template_md.read_text(encoding="utf-8")
-
-    marker = "# Основные технические данные устройств"
-    idx = content.find(marker)
-    if idx == -1:
-        print("[general_updater] ERROR: '# Основные технические данные устройств' not found in template", file=sys.stderr)
-        return 1
-
-    end_of_line = content.find("\n", idx)
-    if end_of_line == -1:
-        end_of_line = len(content)
-
-    insert_text = "\n\n".join(inserts)
-    content = (
-        content[:end_of_line + 1]
-        + "\n"
-        + insert_text
-        + "\n\n"
-        + content[end_of_line + 1:]
-    )
+    out_md = Path(sys.argv[3])
+    templates_dir = Path(sys.argv[4])
 
     out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(content, encoding="utf-8")
 
-    print(f"[general_updater] generated {len(inserts)} table(s) -> {out_md}")
+    vars_data = json.loads(vars_json.read_text(encoding="utf-8"))
+    template_text = template_md.read_text(encoding="utf-8")
+
+    result = process_general_md(template_text, vars_data, templates_dir)
+    out_md.write_text(result, encoding="utf-8", newline="\n")
+
+    print("[general_updater] wrote {}".format(out_md))
     return 0
 
 

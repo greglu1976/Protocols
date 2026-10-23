@@ -24,7 +24,11 @@ TITLE_TEMPLATE = templates/title_page.docx
 TITLE_FILLED   = $(TEMP_DIR)/title_page_filled.docx
 SECTIONS_JSON  = $(CABINET)/sections.json
 
-GENERAL_TEMPLATE = templates/general.md
+# Единый шаблон general.md для всех кабинетов (правится руками).
+# Результат генерации — $(CABINET)/general.md с готовыми таблицами.
+# Никакие xlsx в папку кабинета не пишутся: все шаблоны лежат в templates/.
+TEMPLATES_DIR    = templates
+GENERAL_TEMPLATE = $(TEMPLATES_DIR)/general.md
 GENERAL_MD       = $(CABINET)/general.md
 
 MAIN_CONTENT = $(TEMP_DIR)/main_content.docx
@@ -34,10 +38,8 @@ VARS_JSON    = $(TEMP_DIR)/vars.json
 REFERENCE = templates/title_page.docx
 FILTERS = --lua-filter=lua/pagebreak.lua --filter pandoc-crossref
 
-#PANDOC_OPTS = --standalone $(FILTERS) --reference-doc=$(REFERENCE)
-#PANDOC_OPTS = --standalone --number-sections $(FILTERS) --reference-doc=$(REFERENCE) --lua-filter=lua/start-at-10.lua
-
-PANDOC_OPTS = --standalone $(FILTERS) \
+PANDOC_OPTS = --standalone --from markdown+raw_html $(FILTERS) \
+              --metadata-file=templates/preambule.md \
               --reference-doc=$(REFERENCE) \
               --resource-path=img;$(CABINET);.
 
@@ -114,28 +116,32 @@ $(VARS_JSON): $(GEN_TECH_TABLES) vars_parsing.xlsx | $(TEMP_DIR)
 	@echo "Generating vars.json for CABINET_ID=$(CABINET_ID)..."
 	$(PYTHON) $(GEN_TECH_TABLES) $(CABINET_ID) > "$(VARS_JSON)"
 
-# general.md с блоками INSERT_TABLE + генерация xlsx в $(CABINET)/
-$(GENERAL_MD): $(GENERAL_TEMPLATE) $(VARS_JSON) $(GENERAL_UPDATER)
-	@echo "Generating xlsx and general.md for CABINET_ID=$(CABINET_ID)..."
-	$(PYTHON) $(GENERAL_UPDATER) "$(VARS_JSON)" "$(GENERAL_TEMPLATE)" "$(GENERAL_MD)" "$(CABINET)"
+# general.md: из templates/general.md в SET_<CABINET>/general.md.
+# general_updater.py фильтрует блоки INSERT_TABLE по vars.json и
+# рендерит таблицы из templates/*.xlsx прямо в markdown.
+$(GENERAL_MD): $(GENERAL_TEMPLATE) $(VARS_JSON) $(GENERAL_UPDATER) | $(TEMP_DIR)
+	@echo "Generating general.md for CABINET_ID=$(CABINET_ID)..."
+	$(PYTHON) $(GENERAL_UPDATER) "$(VARS_JSON)" "$(GENERAL_TEMPLATE)" "$(GENERAL_MD)" "$(TEMPLATES_DIR)"
 
 # Заполненный титульник
 $(TITLE_FILLED): $(TITLE_TEMPLATE) $(VARS_JSON) $(FILL_TITLE)
 	@echo "Rendering title page for CABINET_ID=$(CABINET_ID)..."
 	$(PYTHON) $(FILL_TITLE) $(CABINET_ID) "$(VARS_JSON)"
 
-# combined.md: препроцессор таблиц, затем конкатенация исходников
+# combined.md: препроцессор для файлов из sections.json (если они есть),
+# затем конкатенация $(GENERAL_MD) + $(SOURCE).
+# $(GENERAL_MD) уже с готовыми таблицами, поэтому в препроцессор не идёт.
+# Если $(SOURCE) пуст — препроцессор не запускаем (иначе он падает без аргументов).
 $(COMBINED_MD): $(SOURCE) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) $(GENERAL_MD) | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
-	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
+	-@$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
 	@echo "Combining markdown..."
-	$(PYTHON) -c "import sys; out=open(sys.argv[1],'w',encoding='utf-8'); [out.write(open(p,encoding='utf-8').read()+'\n\n') for p in sys.argv[2:]]; out.close()" "$(COMBINED_MD)" $(SOURCE)
-
+	$(PYTHON) -c "import sys; out=open(sys.argv[1],'w',encoding='utf-8'); [out.write(open(p,encoding='utf-8').read()+'\n\n') for p in sys.argv[2:]]; out.close()" "$(COMBINED_MD)" $(GENERAL_MD) $(SOURCE)
 
 # main_content.docx через Pandoc
 $(MAIN_CONTENT): $(COMBINED_MD) $(REFERENCE) lua/pagebreak.lua
 	@echo "Generating main content via Pandoc..."
-	@echo "Using sections: $(SOURCE)"
+	@echo "Using sections: $(GENERAL_MD) $(SOURCE)"
 	$(PANDOC) "$(COMBINED_MD)" -o "$(MAIN_CONTENT)" $(PANDOC_OPTS)
 
 # Мерж заполненного титульника и основного содержимого
@@ -145,10 +151,9 @@ $(FINAL_TARGET): $(TITLE_FILLED) $(MAIN_CONTENT) python/docx_merger.py
 	@echo "Cleaning up intermediate files..."
 	-@if exist "$(subst /,\,$(MAIN_CONTENT))" del /Q "$(subst /,\,$(MAIN_CONTENT))"
 
-# Убираем все финальные docx по каждому кабинету и чистим TEMP
+# Убираем финальные docx по каждому кабинету и чистим TEMP.
 clean:
 	-@$(foreach c,$(CABINETS), \
-	    if exist "$(subst /,\,$(c))\general.md" del /Q "$(subst /,\,$(c))\general.md" & \
 	    if exist "$(subst /,\,$(c))\protocol_$(c).docx" del /Q "$(subst /,\,$(c))\protocol_$(c).docx" &) \
 	    if exist "$(subst /,\,$(TEMP_ROOT))" rmdir /S /Q "$(subst /,\,$(TEMP_ROOT))" 2>nul
 
