@@ -50,7 +50,7 @@ FILL_TITLE         = python/fill_title.py
 GENERAL_UPDATER    = python/general_updater.py
 
 # Лист ревизий, приклеиваемый в конец каждого протокола
-REVSHEET ?= revsheet.docx
+REVSHEET=templates\revsheet.docx
 
 # --- Цели ---
 .PHONY: all one _one show show-one _show-one list clean clean-temp
@@ -90,7 +90,7 @@ ifeq ($(TEST),1)
 	@echo "[TEST MODE] Skipping post-processing for $(CABINET)..."
 else
 	@echo "Post-processing $(FINAL_TARGET) for $(CABINET)..."
-	set TEST=$(TEST)&& set REVSHEET=$(REVSHEET)&& set CABINET_DIR=$(CABINET)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
+	set TEST=$(TEST)&& set REVSHEET=$(REVSHEET)&& set CABINET_DIR=$(CABINET)&& set VARS_JSON=$(VARS_JSON)&& $(PYTHON) $(POSTPROCESS) "$(FINAL_TARGET)"
 endif
 
 list:
