@@ -9,17 +9,30 @@ import os, re
 from pathlib import Path
 from table_generator import generate_table_ascii
 
-# Регулярка для парных тегов.
-# Поддерживает:
-#   file=..., sheet=..., sheet_name=..., tag=...
-# Порядок параметров — произвольный.
-TAG_PARAMS_RE = re.compile(
-    r'(?:file=(?P<file>[^,\s]+),?\s*)?'
-    r'(?:,?\s*sheet(?:_name)?=(?P<sheet>[^,\s]+),?\s*)?'
-    r'(?:,?\s*tag=(?P<tag>[^,\s]+),?\s*)?'
-)
+# Независимые регулярки для каждого параметра — порядок в теге не важен:
+#   <!-- INSERT_TABLE:file=..., sheet=..., tag=... -->
+#   <!-- INSERT_TABLE:tag=..., file=... -->  ← тоже работает
+_FILE_RE = re.compile(r'file=([^,\s>]+)')
+_SHEET_RE = re.compile(r'sheet(?:_name)?=([^,\s>]+)')
+_TAG_RE = re.compile(r'tag=([^,\s>]+)')
+
 OPEN_TAG = "<!-- INSERT_TABLE:"
 CLOSE_TAG = "<!-- END_INSERT_TABLE -->"
+
+
+def _parse_params(tag_content):
+    """Достаёт file/sheet/tag из содержимого открывающего тега."""
+    params = {}
+    m = _FILE_RE.search(tag_content)
+    if m:
+        params['file'] = m.group(1)
+    m = _SHEET_RE.search(tag_content)
+    if m:
+        params['sheet'] = m.group(1)
+    m = _TAG_RE.search(tag_content)
+    if m:
+        params['tag'] = m.group(1)
+    return params
 
 
 def process_tables(content, md_file_dir):
@@ -41,8 +54,7 @@ def process_tables(content, md_file_dir):
             break
 
         tag_content = content[open_idx + len(OPEN_TAG):open_end_idx]
-        params_match = TAG_PARAMS_RE.match(tag_content.strip())
-        params = params_match.groupdict() if params_match else {}
+        params = _parse_params(tag_content)
 
         file_rel = params.get('file')
         close_idx = content.find(CLOSE_TAG, open_end_idx)

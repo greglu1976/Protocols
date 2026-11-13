@@ -15,19 +15,12 @@ def _generate_crossref_id(text):
 
 
 def _get_metadata(wb):
-    """
-    Читает с листа 'Info':
-      - 'Название таблицы' → long_title
-      - 'Тэг' | 'tag' | 'id' | 'идентификатор' → table_tag
-      - 'Метка' | 'label' → table_label
-    Возвращает (long_title, table_tag, table_label).
-    """
+    """Читает с листа 'Info': Название таблицы, Тэг, Метку."""
     info_sheet = None
     for ws in wb.worksheets:
         if ws.title.lower() == 'info':
             info_sheet = ws
             break
-
     if not info_sheet:
         return None, None, None
 
@@ -39,7 +32,6 @@ def _get_metadata(wb):
         key, value = row[0], row[1]
         if key is None:
             continue
-
         key_str = str(key).strip().lower()
         if key_str == 'название таблицы' and value:
             table_name = str(value).strip()
@@ -52,27 +44,7 @@ def _get_metadata(wb):
 
 
 def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
-    """
-    Чистая функция генерации.
-    Принимает абсолютный путь к Excel, имя листа и опциональный tag.
-    Возвращает строку с ASCII-таблицей и подписью.
-
-    Если tag == 'custom':
-        Вывод:
-            ::: {#tbl:<id> label="<метка>"}
-            <grid>
-            
-            : <название>
-            :::
-        Метка берётся из листа 'Info' (ключ 'Метка'/'label').
-        Если метки нет — параметр label не добавляется.
-
-    Иначе (tag пустой или другой):
-        Вывод:
-            <grid>
-            
-            : <название> {#tbl:<id>}
-    """
+    """Генерирует Grid-таблицу с короткими маркерами выравнивания."""
     wb = openpyxl.load_workbook(file_abs, data_only=True)
     long_title, explicit_tag, table_label = _get_metadata(wb)
 
@@ -95,7 +67,6 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
                 return is_master, rng.min_row, rng.min_col, rng.max_row, rng.max_col
         return True, r, c, r, c
 
-    # Сбор данных и расчет ширины колонок
     col_widths = [3] * max_col
     raw_data = {}
     spanned_cells = []
@@ -104,12 +75,25 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
         for c in range(1, max_col + 1):
             is_master, min_r, min_c, max_r, max_c = get_merged_info(r, c)
             val = ""
+            
             if is_master:
-                cell_value = ws.cell(row=r, column=c).value
-                if cell_value is None:
-                    val = ""
-                else:
-                    val = str(cell_value).replace('\n', ' ').strip()
+                cell = ws.cell(row=r, column=c)
+                if cell.value is not None:
+                    val = str(cell.value).replace('\r\n', '%%BR%%').replace('\n', '%%BR%%').strip()
+                    if val and val[0] in ('+', '-', '*') and (len(val) == 1 or val[1] == ' '):
+                        val = '\\' + val
+                
+                # Применяем короткие маркеры выравнивания
+                c_align = cell.alignment.horizontal if cell.alignment else None
+                if c_align == 'center' or (r == 1 and c_align is None):
+                    val = "%%C%%" + val
+                elif c_align == 'right':
+                    val = "%%R%%" + val
+                elif c_align == 'left':
+                    val = "%%L%%" + val
+
+            # ВАЖНО: raw_val_len считается уже С маркерами, чтобы колонка была достаточно широкой
+            raw_val_len = len(val)
 
             raw_data[(r, c)] = {
                 'val': val, 'is_master': is_master,
@@ -118,9 +102,9 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
 
             if is_master:
                 if min_c == max_c:
-                    col_widths[c - 1] = max(col_widths[c - 1], len(val))
+                    col_widths[c - 1] = max(col_widths[c - 1], raw_val_len)
                 else:
-                    spanned_cells.append((min_c, max_c, len(val)))
+                    spanned_cells.append((min_c, max_c, raw_val_len))
 
     # Корректировка ширины под colspan
     spanned_cells.sort(key=lambda x: (x[1] - x[0]))
@@ -135,7 +119,6 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
 
     row_heights = [1] * max_row
 
-    # Вычисление координат
     col_starts = [0] * (max_col + 1)
     current_x = 0
     for i, w in enumerate(col_widths):
@@ -154,7 +137,6 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
     total_height = row_starts[-1] + 1
     canvas = [[' ' for _ in range(total_width)] for _ in range(total_height)]
 
-    # Базовая сетка
     for r in range(max_row + 1):
         y = row_starts[r]
         for x in range(total_width - 1):
@@ -167,7 +149,6 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
         for c in range(max_col + 1):
             canvas[row_starts[r]][col_starts[c]] = '+'
 
-    # Затирание внутренних границ объединений
     unique_ranges = set()
     for r in range(1, max_row + 1):
         for c in range(1, max_col + 1):
@@ -192,7 +173,6 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
                     if canvas[yi][xi] in '|+':
                         canvas[yi][xi] = ' '
 
-    # Вставка текста
     for r in range(1, max_row + 1):
         for c in range(1, max_col + 1):
             info = raw_data[(r, c)]
@@ -205,33 +185,23 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
                 for ci, ch in enumerate(padded_val):
                     canvas[y1 + 1][x1 + 1 + ci] = ch
 
-    # Определяем, сколько строк занимает заголовок
     header_has_merge = any(
         min_r <= 2 and max_r <= 2 and min_c != max_c
         for (min_r, min_c, max_r, max_c) in unique_ranges
     )
     header_end_row = 2 if header_has_merge else 1
 
-    # Двойная линия заголовка
     if header_end_row <= max_row:
         hy = row_starts[header_end_row]
         for x in range(total_width - 1):
             if canvas[hy][x] == '-':
                 canvas[hy][x] = '='
 
-    # Формирование подписи
     display_name = long_title or ws.title
     crossref_id = explicit_tag if explicit_tag else _generate_crossref_id(display_name)
     grid_output = '\n'.join(''.join(row).rstrip() for row in canvas)
 
-    # ── Режим custom ──
     if tag == 'custom':
-        # Собираем атрибуты для div
-        attrs = [f'#{crossref_id}']
-        if table_label:
-            attrs.append(f'label="{table_label}"')
-        attr_str = ' '.join(attrs)
-
         return (
             f"::: {{#tbl:{crossref_id}"
             + (f' label="{table_label}"' if table_label else '')
@@ -241,6 +211,5 @@ def generate_table_ascii(file_abs, sheet_name='Лист1', tag=None):
             f":::\n"
         )
 
-    # ── Обычный режим ──
     caption_line = f": {display_name} {{#tbl:{crossref_id}}}"
     return f"{grid_output}\n\n{caption_line}"

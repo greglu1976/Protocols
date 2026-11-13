@@ -1,5 +1,5 @@
 # --- Переменные ---
-CABINET    ?= SET_240.01-0
+CABINET    ?= SET_210.01-0
 CABINET_ID ?= $(patsubst SET_%,%,$(CABINET))
 
 PANDOC ?= pandoc
@@ -134,7 +134,11 @@ $(TITLE_FILLED): $(TITLE_TEMPLATE) $(VARS_JSON) $(FILL_TITLE)
 # Если $(SOURCE) пуст — препроцессор не запускаем (иначе он падает без аргументов).
 $(COMBINED_MD): $(SOURCE) $(SECTIONS_JSON) $(TABLE_PREPROCESSOR) $(GENERAL_MD) | $(TEMP_DIR)
 	@echo "Preprocessing tables in source files..."
-	-@$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
+ifneq ($(strip $(SOURCE)),)
+	$(PYTHON) $(TABLE_PREPROCESSOR) $(SOURCE)
+else
+	@echo "  sections.json is empty/missing - skipping preprocess"
+endif
 	@echo "Combining markdown..."
 	$(PYTHON) -c "import sys; out=open(sys.argv[1],'w',encoding='utf-8'); [out.write(open(p,encoding='utf-8').read()+'\n\n') for p in sys.argv[2:]]; out.close()" "$(COMBINED_MD)" $(GENERAL_MD) $(SOURCE)
 
